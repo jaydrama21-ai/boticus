@@ -1,0 +1,89 @@
+# .github/workflows/bot.yml
+# Runs the trading bot every 10 minutes during market hours (ET)
+# Free tier: ~8,640 min/month — within GitHub's 2,000 free minutes
+# (each run uses ~1-2 min of compute)
+
+name: Trading Bot
+
+on:
+  schedule:
+    # Every 10 minutes, Mon-Fri, 9:25 AM - 4:15 PM ET
+    # GitHub cron uses UTC — ET is UTC-4 (summer) / UTC-5 (winter)
+    # These times cover both: 13:25-20:15 UTC (summer) and 14:25-21:15 UTC (winter)
+    # We run a wider window and let the bot check the session itself
+    - cron: '*/10 13-21 * * 1-5'
+
+    # Pre-market brief at 8:00 AM ET (12:00 UTC summer / 13:00 UTC winter)
+    - cron: '0 12,13 * * 1-5'
+
+    # Post-close review at 4:30 PM ET (20:30 UTC summer / 21:30 UTC winter)
+    - cron: '30 20,21 * * 1-5'
+
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode (scan / review / status)'
+        required: false
+        default: 'scan'
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8  # Kill if it runs longer than 8 min (stuck)
+
+    steps:
+      # ── Checkout code ────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Restore persisted state (trades, feedback, logs) ─────────────────
+      - name: Restore bot state
+        uses: actions/cache@v4
+        with:
+          path: bot_state/
+          key: bot-state-${{ github.run_number }}
+          restore-keys: |
+            bot-state-
+
+      # ── Set up Python ────────────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # ── Install dependencies ─────────────────────────────────────────────
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── Run the bot ───────────────────────────────────────────────────────
+      - name: Run trading bot
+        env:
+          ALPACA_API_KEY:    ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_BASE_URL:   ${{ secrets.ALPACA_BASE_URL }}
+          FRED_API_KEY:      ${{ secrets.FRED_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PAPER_MODE:        ${{ secrets.PAPER_MODE }}
+          ACCOUNT_EQUITY:    ${{ secrets.ACCOUNT_EQUITY }}
+          STATE_DIR:         bot_state
+          RUN_MODE:          ${{ github.event.inputs.mode || 'scan' }}
+        run: python bot.py
+
+      # ── Save state for next run ───────────────────────────────────────────
+      - name: Save bot state
+        uses: actions/cache@v4
+        if: always()  # Save even if bot errored
+        with:
+          path: bot_state/
+          key: bot-state-${{ github.run_number }}
+
+      # ── Upload logs as artifact (viewable in Actions tab) ─────────────────
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot-logs-${{ github.run_id }}
+          path: bot_state/bot.log
+          retention-days: 7
