@@ -16,12 +16,12 @@ import anthropic
 ET = ZoneInfo("America/New_York")
 
 # ── Keys from environment ──────────────────────────────────────────────────────
-ALPACA_KEY      = os.environ.get("ALPACA_API_KEY", "")
-ALPACA_SECRET   = os.environ.get("ALPACA_SECRET_KEY", "")
+ALPACA_KEY      = os.environ.get("PKI3FRZTU2BEBF7XPKFEIDXP56", "")
+ALPACA_SECRET   = os.environ.get("He45Xrmqdzft84exS7xrt6Xqwm6WJRj1Rhwuz7HKNuDx", "")
 ALPACA_BASE     = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 ALPACA_DATA     = "https://data.alpaca.markets"
-FRED_KEY        = os.environ.get("FRED_API_KEY", "")
-ANTHROPIC_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
+FRED_KEY        = os.environ.get("f2e0c562b2d0764cfa6b0bb215bb823b", "")
+ANTHROPIC_KEY   = os.environ.get("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", "")
 PAPER_MODE        = os.environ.get("PAPER_MODE", "true").lower() == "true"
 ACCOUNT_EQUITY    = float(os.environ.get("ACCOUNT_EQUITY", "100000"))
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
