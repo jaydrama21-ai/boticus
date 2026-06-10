@@ -57,8 +57,8 @@ jobs:
           ANTHROPIC_API_KEY:   ${{ secrets.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 }}
           PAPER_MODE:          ${{ secrets.PAPER_MODE }}
           ACCOUNT_EQUITY:      ${{ secrets.ACCOUNT_EQUITY }}
-          TELEGRAM_BOT_TOKEN:  ${{ secrets.bot8425149242:AAEfe6HC9LD1PxD3ChnW-c6uKoRzlusv1Iw }}
-          TELEGRAM_CHAT_ID:    ${{ secrets.1986511037 }}
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
           STATE_DIR:           bot_state
           RUN_MODE:            ${{ github.event.inputs.mode || 'scan' }}
           BACKTEST_DAYS:       ${{ github.event.inputs.backtest_days || '180' }}
