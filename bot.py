@@ -691,7 +691,8 @@ def scan_long(symbol) -> dict | None:
     notes = [f"Trend↑ {pct_above_50:.1%} above SMA50",
              f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}"]
     if t.headline_score > 20: notes.append(f"Headlines bullish ({t.headline_score:+.0f})")
-    if reddit.get("trending"): notes.append(f"Reddit trending ({reddit.get("mentions",0)} mentions)")
+    reddit_mentions = reddit.get("mentions", 0)
+    if reddit.get("trending"): notes.append(f"Reddit trending ({reddit_mentions} mentions)")
     if is_unusual: notes.append(f"Unusual volume {t.vol_ratio:.1f}x")
     return {
         "symbol": symbol, "type": "stock_long", "direction": "long",
