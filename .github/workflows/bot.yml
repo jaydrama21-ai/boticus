@@ -1,0 +1,85 @@
+name: Trading Bot
+
+on:
+  schedule:
+    - cron: '*/10 13-21 * * 1-5'
+    - cron: '30 20,21 * * 1-5'
+    - cron: '0 12,13 * * 0'
+
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode: scan | review | status | backtest | auto_adjust | dashboard'
+        required: false
+        default: 'scan'
+      backtest_days:
+        description: 'Days of history for backtest (default 180)'
+        required: false
+        default: '180'
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore bot state
+        uses: actions/cache@v4
+        with:
+          path: bot_state/
+          key: bot-state-${{ github.run_number }}
+          restore-keys: |
+            bot-state-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run trading bot
+        env:
+          ALPACA_API_KEY:      ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY:   ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_BASE_URL:     ${{ secrets.ALPACA_BASE_URL }}
+          FRED_API_KEY:        ${{ secrets.FRED_API_KEY }}
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          PAPER_MODE:          ${{ secrets.PAPER_MODE }}
+          ACCOUNT_EQUITY:      ${{ secrets.ACCOUNT_EQUITY }}
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL:       ${{ secrets.DASHBOARD_URL }}
+          GITHUB_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY:   ${{ github.repository }}
+          STATE_DIR:           bot_state
+          RUN_MODE:            ${{ github.event.inputs.mode || 'scan' }}
+          BACKTEST_DAYS:       ${{ github.event.inputs.backtest_days || '180' }}
+        run: python -u bot.py
+
+      - name: Save bot state
+        uses: actions/cache@v4
+        if: always()
+        with:
+          path: bot_state/
+          key: bot-state-${{ github.run_number }}
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot-logs-${{ github.run_id }}
+          path: |
+            bot_state/bot.log
+            bot_state/backtest_latest.json
+            bot_state/auto_adjust_latest.json
+          retention-days: 14
