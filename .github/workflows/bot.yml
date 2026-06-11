@@ -47,8 +47,7 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Run trading bot
+     - name: Run trading bot
         env:
           ALPACA_API_KEY:      ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY:   ${{ secrets.ALPACA_SECRET_KEY }}
@@ -62,7 +61,9 @@ jobs:
           STATE_DIR:           bot_state
           RUN_MODE:            ${{ github.event.inputs.mode || 'scan' }}
           BACKTEST_DAYS:       ${{ github.event.inputs.backtest_days || '180' }}
-        run: python bot.py
+        run: |
+          python -c "import bot; print('Import OK')" || echo "IMPORT FAILED"
+          python bot.py
 
       - name: Save bot state
         uses: actions/cache@v4
