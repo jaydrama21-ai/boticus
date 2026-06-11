@@ -38,8 +38,44 @@ OPUS_MODEL   = "claude-opus-4-5"
 SONNET_MODEL = "claude-sonnet-4-5"
 
 # ── Watchlist ──────────────────────────────────────────────────────────────────
-WATCHLIST       = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD", "TSLA"]
-OPTIONS_TICKERS = ["SPY", "QQQ", "AAPL", "NVDA", "TSLA"]
+# Diversified across sectors, liquidity, and headline sensitivity
+# Not just big names — includes mid-caps, sector plays, and news-driven movers
+WATCHLIST = [
+    # Index ETFs — market context + tradeable
+    "SPY", "QQQ", "IWM",
+    # Mega cap tech — high liquidity, options depth
+    "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN",
+    # High-beta / news-driven
+    "TSLA", "AMD", "PLTR", "COIN",
+    # Financials — rate sensitive, macro-driven
+    "JPM", "BAC", "GS",
+    # Energy — commodity + geopolitical headline driven
+    "XOM", "CVX",
+    # Healthcare — FDA headlines, biotech volatility
+    "UNH", "LLY",
+    # Sector ETFs — rotation signals
+    "XLK", "XLF", "XLE", "XLV",
+    # Volatility / macro proxy
+    "TLT", "GLD",
+]
+
+OPTIONS_TICKERS = [
+    "SPY", "QQQ", "AAPL", "NVDA", "TSLA",
+    "MSFT", "META", "AMD", "PLTR", "IWM",
+]
+
+# Headline-sensitive tickers — get extra news weight in scoring
+HEADLINE_SENSITIVE = [
+    "TSLA", "PLTR", "COIN", "AMD", "META",
+    "LLY", "COIN", "GS", "XOM",
+]
+
+# Sector map — used for rotation analysis
+SECTOR_MAP = {
+    "XLK": "tech", "XLF": "financials", "XLE": "energy",
+    "XLV": "healthcare", "TLT": "bonds", "GLD": "gold",
+    "IWM": "small_cap",
+}
 
 # ── Risk config ────────────────────────────────────────────────────────────────
 RISK = {
@@ -218,6 +254,7 @@ class TickerData:
         self.earnings_within_5d = False
         self.earnings_date = None
         self.has_negative_news = False
+        self.headline_score = 0.0   # -100 to +100
         self.headlines = []
 
 class MacroData:
@@ -230,6 +267,9 @@ class MacroData:
         self.upcoming_events = []
         self.futures_sentiment = "NEUTRAL"
         self.risk_score = 0
+        self.reddit_mentions = {}    # symbol -> mention data
+        self.sector_rotation = {}    # sector -> rotation data
+        self.unusual_volume  = []    # list of unusual volume symbols
 
 tickers: dict[str, TickerData] = {}
 macro = MacroData()
@@ -237,7 +277,132 @@ macro = MacroData()
 NEG_KEYWORDS = [
     "fraud","sec investigation","bankruptcy","recall","downgrade",
     "guidance cut","earnings miss","layoff","lawsuit","restatement","delisting",
+    "data breach","accounting","whistleblower","short seller","going concern",
 ]
+
+POS_KEYWORDS = [
+    "beat expectations","record revenue","upgrade","raised guidance","buyback",
+    "dividend increase","fda approval","contract win","partnership","acquisition",
+    "ai deal","data center","earnings beat","raised forecast","record profit",
+]
+
+def score_headlines(headlines: list, symbol: str) -> dict:
+    """
+    Score a list of headlines for a ticker.
+    Returns sentiment score (-100 to +100), flags, and key headlines.
+    Headline-sensitive tickers get amplified scoring.
+    """
+    if not headlines:
+        return {"score": 0, "bullish": 0, "bearish": 0,
+                "has_negative": False, "has_positive": False, "key": []}
+
+    bullish = 0
+    bearish = 0
+    key     = []
+
+    for h in headlines:
+        h_low = h.lower()
+        pos = sum(1 for kw in POS_KEYWORDS if kw in h_low)
+        neg = sum(1 for kw in NEG_KEYWORDS if kw in h_low)
+        bullish += pos
+        bearish += neg
+        if pos > 0 or neg > 0:
+            key.append(f"{'+ ' if pos > neg else '- '}{h[:80]}")
+
+    # Amplify for headline-sensitive tickers
+    amp = 1.5 if symbol in HEADLINE_SENSITIVE else 1.0
+    score = round((bullish - bearish) * 20 * amp, 1)
+    score = max(-100, min(100, score))
+
+    return {
+        "score":        score,
+        "bullish":      bullish,
+        "bearish":      bearish,
+        "has_negative": bearish > 0,
+        "has_positive": bullish > 0,
+        "key":          key[:3],
+    }
+
+
+def fetch_reddit_mentions(symbols: list) -> dict:
+    """
+    Pull Reddit mentions from r/wallstreetbets and r/stocks.
+    Returns dict of symbol -> {mentions, bullish, bearish, trending}.
+    Free, no auth needed.
+    """
+    mentions = {s: {"mentions": 0, "bullish": 0, "bearish": 0, "trending": False}
+                for s in symbols}
+    bull_kw = ["calls","bull","long","buy","moon","breakout","squeeze","beat","upgrade"]
+    bear_kw = ["puts","bear","short","sell","crash","drop","miss","downgrade","dump"]
+
+    for sub in ["wallstreetbets", "stocks", "options", "investing"]:
+        for sort in ["hot", "new"]:
+            try:
+                r = requests.get(
+                    f"https://www.reddit.com/r/{sub}/{sort}.json?limit=25",
+                    headers={"User-Agent": "boticus-sentiment/1.0"},
+                    timeout=8
+                )
+                if r.status_code != 200:
+                    continue
+                posts = r.json().get("data", {}).get("children", [])
+                for post in posts:
+                    text = (post["data"].get("title","") + " " +
+                            post["data"].get("selftext","")[:200]).lower()
+                    for sym in symbols:
+                        if re.search(r'\b' + sym.lower() + r'\b', text):
+                            mentions[sym]["mentions"] += 1
+                            mentions[sym]["bullish"] += sum(1 for k in bull_kw if k in text)
+                            mentions[sym]["bearish"] += sum(1 for k in bear_kw if k in text)
+            except: pass
+        time.sleep(0.3)
+
+    # Flag trending — mentioned 3+ times
+    for sym in mentions:
+        if mentions[sym]["mentions"] >= 3:
+            mentions[sym]["trending"] = True
+            log(f"  Reddit trending: {sym} ({mentions[sym]['mentions']} mentions, "
+                f"bull:{mentions[sym]['bullish']} bear:{mentions[sym]['bearish']})")
+
+    return mentions
+
+
+def fetch_unusual_volume_scan() -> list:
+    """
+    Scan watchlist for unusual volume using yfinance.
+    Returns list of symbols with >2x average volume.
+    """
+    unusual = []
+    for sym, t in tickers.items():
+        if t.vol_ratio >= 2.0:
+            unusual.append({"symbol": sym, "vol_ratio": t.vol_ratio, "price": t.price})
+            log(f"  Unusual volume: {sym} {t.vol_ratio:.1f}x avg")
+    return unusual
+
+
+def fetch_sector_rotation() -> dict:
+    """
+    Detect which sectors are in/out of favor today.
+    Uses sector ETF performance to guide signal weighting.
+    """
+    rotation = {}
+    for etf, sector in SECTOR_MAP.items():
+        t = tickers.get(etf)
+        if t and t.change_pct != 0:
+            rotation[sector] = {
+                "etf":        etf,
+                "change_pct": t.change_pct,
+                "trend":      "up" if t.price > t.sma_50 else "down",
+                "favored":    t.change_pct > 0.3,
+            }
+
+    # Log top movers
+    if rotation:
+        top = sorted(rotation.items(), key=lambda x: x[1]["change_pct"], reverse=True)
+        log(f"  Sector rotation — leading: {top[0][0]} ({top[0][1]['change_pct']:+.1f}%) "
+            f"lagging: {top[-1][0]} ({top[-1][1]['change_pct']:+.1f}%)")
+
+    return rotation
 
 def get_market_session() -> str:
     now = datetime.now(ET)
@@ -283,20 +448,22 @@ def fetch_price_data():
                     earnings_5d = 0 <= days <= 5
                     earnings_dt = str(ed)
             except: pass
-            # News via Alpaca
-            headlines = []; has_neg = False
+            # News via Alpaca — enhanced with headline scoring
+            headlines = []; has_neg = False; headline_score = 0
             try:
-                since = (datetime.now(ET) - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                since = (datetime.now(ET) - timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
                 r = requests.get(
                     f"{ALPACA_DATA}/v1beta1/news",
                     headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
-                    params={"symbols": symbol, "start": since, "limit": 10},
+                    params={"symbols": symbol, "start": since, "limit": 15},
                     timeout=8
                 )
                 if r.ok:
                     articles = r.json().get("news", [])
-                    headlines = [a["headline"] for a in articles[:5]]
-                    has_neg   = any(kw in h.lower() for h in headlines for kw in NEG_KEYWORDS)
+                    headlines = [a["headline"] for a in articles[:8]]
+                    hs = score_headlines(headlines, symbol)
+                    has_neg      = hs["has_negative"]
+                    headline_score = hs["score"]
             except: pass
             t = TickerData(symbol)
             t.price = round(price, 2);  t.prev_close = round(prev_close, 2)
@@ -307,7 +474,9 @@ def fetch_price_data():
             t.rsi_14  = rsi; t.atr_14 = atr; t.atr_pct = round(atr_pct, 4)
             t.iv_rank = 50.0; t.implied_move = round(atr_pct * 2, 3)
             t.earnings_within_5d = earnings_5d; t.earnings_date = earnings_dt
-            t.has_negative_news  = has_neg; t.headlines = headlines
+            t.has_negative_news  = has_neg
+            t.headline_score     = headline_score
+            t.headlines = headlines
             tickers[symbol] = t
             trend = "↑" if price > sma_50 > sma_200 else "↓" if price < sma_50 else "→"
             earn  = " ⚠️EARN" if earnings_5d else ""
@@ -388,6 +557,19 @@ def fetch_macro():
         events = [e for e,f in [("FOMC",macro.fomc_24h),("CPI",macro.cpi_24h),("Jobs",macro.jobs_24h)] if f]
         log(f"  ⚠️  HIGH-IMPACT EVENT TODAY: {events}", "WARN")
 
+    # Reddit sentiment (runs after price data is loaded)
+    log("  Scanning Reddit sentiment...")
+    try:
+        macro.reddit_mentions = fetch_reddit_mentions(WATCHLIST)
+    except Exception as e:
+        log(f"  Reddit error: {e}", "WARN")
+
+    # Sector rotation
+    macro.sector_rotation = fetch_sector_rotation()
+
+    # Unusual volume
+    macro.unusual_volume = fetch_unusual_volume_scan()
+
 def build_context(symbol=None) -> str:
     m = macro
     lines = [
@@ -400,6 +582,20 @@ def build_context(symbol=None) -> str:
     ]
     if m.fomc_24h or m.cpi_24h or m.jobs_24h:
         lines.append("⚠️ HIGH-IMPACT EVENT IN 24H")
+
+    # Sector rotation summary
+    if m.sector_rotation:
+        leading = [(s, d) for s, d in m.sector_rotation.items() if d["favored"]]
+        lagging = [(s, d) for s, d in m.sector_rotation.items() if not d["favored"]]
+        if leading:
+            lines.append(f"Sectors leading: {', '.join(s for s,_ in leading[:3])}")
+        if lagging:
+            lines.append(f"Sectors lagging: {', '.join(s for s,_ in lagging[:3])}")
+
+    # Unusual volume flags
+    if m.unusual_volume:
+        lines.append(f"Unusual volume: {', '.join(u['symbol'] for u in m.unusual_volume[:5])}")
+
     if symbol and symbol in tickers:
         t = tickers[symbol]
         lines += [
@@ -408,15 +604,30 @@ def build_context(symbol=None) -> str:
             f"RSI: {t.rsi_14:.1f} | ATR: {t.atr_pct:.2%} | Vol ratio: {t.vol_ratio:.2f}x",
             f"SMA50: ${t.sma_50:.2f} | SMA200: ${t.sma_200:.2f}",
             f"Trend: {'UPTREND' if t.price > t.sma_50 > t.sma_200 else 'DOWNTREND' if t.price < t.sma_50 < t.sma_200 else 'MIXED'}",
+            f"Headline score: {t.headline_score:+.0f}/100 ({'bullish' if t.headline_score > 20 else 'bearish' if t.headline_score < -20 else 'neutral'})",
             f"Earnings within 5d: {t.earnings_within_5d}",
         ]
+        # Reddit mentions
+        reddit = m.reddit_mentions.get(symbol, {})
+        if reddit.get("mentions", 0) > 0:
+            bias = "bullish" if reddit["bullish"] > reddit["bearish"] else "bearish" if reddit["bearish"] > reddit["bullish"] else "neutral"
+            lines.append(f"Reddit: {reddit['mentions']} mentions ({bias}) {'🔥 TRENDING' if reddit.get('trending') else ''}")
+
+        # Sector context
+        sym_sector = SECTOR_MAP.get(symbol)
+        if sym_sector and sym_sector in m.sector_rotation:
+            sr = m.sector_rotation[sym_sector]
+            lines.append(f"Sector ({sym_sector}): {sr['change_pct']:+.1f}% today ({'favored' if sr['favored'] else 'out of favor'})")
+
         if t.headlines:
             lines.append("Headlines:")
-            for h in t.headlines[:3]: lines.append(f"  • {h}")
+            for h in t.headlines[:4]: lines.append(f"  • {h}")
+
     lines.append("\n=== WATCHLIST ===")
     for sym, tick in tickers.items():
         if sym == symbol: continue
-        lines.append(f"{sym}: ${tick.price:.2f} ({tick.change_pct:+.1f}%) RSI:{tick.rsi_14:.0f}")
+        hl = f" HL:{tick.headline_score:+.0f}" if tick.headline_score != 0 else ""
+        lines.append(f"{sym}: ${tick.price:.2f} ({tick.change_pct:+.1f}%) RSI:{tick.rsi_14:.0f}{hl}")
     return "\n".join(lines)
 
 
@@ -430,42 +641,67 @@ def scan_long(symbol) -> dict | None:
     m = macro
     # Hard gates
     if t.earnings_within_5d: return None
-    if t.has_negative_news:  return None
+    if t.has_negative_news and t.headline_score < -30: return None
     if m.fomc_24h or m.cpi_24h or m.jobs_24h: return None
-    if macro.risk_score <= -2: return None  # RISK-OFF — no longs
-    # Trend
+    if macro.risk_score <= -2: return None
+    # Trend — tightened, require >0.5% above SMA50
     if not (t.price > t.sma_50 > t.sma_200): return None
-    trend_score = min(100, 90 + (t.price - t.sma_50) / t.sma_50 * 200)
-    # RSI
+    pct_above_50 = (t.price - t.sma_50) / t.sma_50
+    if pct_above_50 < 0.005: return None
+    trend_score = min(100, 90 + pct_above_50 * 200)
+    # RSI — tightened upper bound to 65
     if not (RISK["rsi_min"] <= t.rsi_14 <= RISK["rsi_max"]): return None
-    mom_score = 100 - abs(t.rsi_14 - 52) * 2.5
-    # Volume
+    if t.rsi_14 > 65: return None
+    mom_score = max(50, 100 - abs(t.rsi_14 - 52) * 2.5)
+    # Volume — heavier penalty
     vol_score = min(100, 55 + (t.vol_ratio - 1) * 25)
-    if t.vol_ratio < RISK["volume_min_mult"]: vol_score *= 0.5
+    if t.vol_ratio < RISK["volume_min_mult"]: vol_score *= 0.4
+    if t.vol_ratio < 0.8: return None
     # ATR
     if t.atr_pct > RISK["atr_pct_max"]: return None
-    atr_score = 100 if 0.01 <= t.atr_pct <= 0.03 else 80
-    # Macro
+    if t.atr_pct < 0.005: return None
+    atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
+    # Macro — tightened
     mac_score = (100 if m.market_regime == "trending_up" else
-                 80  if m.market_regime == "ranging" else
-                 50  if m.market_regime == "volatile" else 20)
-    if m.vix_regime == "fear":     mac_score -= 30
-    elif m.vix_regime == "elevated": mac_score -= 15
-    if m.yield_curve < -0.5:       mac_score -= 10
+                 75  if m.market_regime == "ranging" else
+                 40  if m.market_regime == "volatile" else 15)
+    if m.vix_regime == "fear":      mac_score -= 35
+    elif m.vix_regime == "elevated": mac_score -= 20
+    if m.yield_curve < -0.5:         mac_score -= 10
+    if mac_score < 30: return None
+    # Headline + sentiment adjustments
+    hl_score = max(0, min(100, 50 + t.headline_score / 2))
+    reddit = m.reddit_mentions.get(symbol, {})
+    reddit_adj = 8 if (reddit.get("trending") and reddit.get("bullish",0) > reddit.get("bearish",0)) else (
+                -15 if (reddit.get("trending") and reddit.get("bearish",0) > reddit.get("bullish",0)) else 0)
+    sym_sector = SECTOR_MAP.get(symbol)
+    sector_adj = (5 if sym_sector and m.sector_rotation.get(sym_sector, {}).get("favored") else
+                 -5 if sym_sector and sym_sector in m.sector_rotation else 0)
+    is_unusual  = any(u["symbol"] == symbol for u in m.unusual_volume)
+    unusual_adj = 5 if is_unusual else 0
     criteria = (trend_score*0.25 + mom_score*0.20 + vol_score*0.20 +
-                atr_score*0.15 + mac_score*0.20)
-    if criteria < 55: return None
+                atr_score*0.15 + mac_score*0.15 + hl_score*0.05 +
+                reddit_adj + sector_adj + unusual_adj)
+    if criteria < 60: return None
     atr    = t.atr_14 or t.price * 0.015
     stop   = round(t.price - RISK["stop_loss_atr_mult"]   * atr, 2)
     target = round(t.price + RISK["take_profit_atr_mult"] * atr, 2)
     rr     = round((target - t.price) / (t.price - stop), 2) if t.price > stop else 0
+    if rr < 1.5: return None
+    notes = [f"Trend↑ {pct_above_50:.1%} above SMA50",
+             f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}"]
+    if t.headline_score > 20: notes.append(f"Headlines bullish ({t.headline_score:+.0f})")
+    if reddit.get("trending"): notes.append(f"Reddit trending ({reddit.get("mentions",0)} mentions)")
+    if is_unusual: notes.append(f"Unusual volume {t.vol_ratio:.1f}x")
     return {
         "symbol": symbol, "type": "stock_long", "direction": "long",
         "entry": t.price, "stop": stop, "target": target, "rr": rr,
         "criteria": round(criteria, 1),
         "scores": {"trend": trend_score, "momentum": mom_score,
                    "volume": vol_score, "atr": atr_score, "macro": mac_score},
-        "notes": [f"Trend↑ RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}"],
+        "notes": notes,
+        "headline_score": t.headline_score,
+        "reddit_trending": reddit.get("trending", False),
     }
 
 def scan_short(symbol) -> dict | None:
@@ -535,7 +771,7 @@ def scan_all() -> list:
 
 SYSTEM_PROMPT = (
     "You are a disciplined trading signal analyst. Trade BOTH directions.\n"
-    "You have pattern memory and full market context. USE BOTH.\n"
+    "You have pattern memory, market context, headline scores, and Reddit sentiment. USE ALL OF IT.\n"
     "Output ONLY valid JSON — no markdown, no preamble.\n\n"
     "Format: {\"score\":0-100,\"confidence\":\"low|medium|high\","
     "\"recommendation\":\"take|skip|reduce_size\","
@@ -544,10 +780,13 @@ SYSTEM_PROMPT = (
     "\"key_positives\":[\"x\"],\"key_risks\":[\"x\"],"
     "\"suggested_size_adjustment\":1.0,"
     "\"pattern_insight\":\"one sentence\"}\n\n"
-    "80-100=take, 65-79=good, 55-64=marginal, 0-54=skip.\n"
-    "LONG: needs uptrend + RSI 40-65 + volume + low VIX + RISK-ON or NEUTRAL futures.\n"
-    "SHORT: needs downtrend OR overbought + risk-off + elevated VIX + RISK-OFF futures.\n"
-    "Protect capital first. Never rationalize a bad trade."
+    "80-100=take, 65-79=good, 60-64=marginal, 0-59=skip.\n"
+    "LONG: uptrend >0.5% above SMA50 + RSI 40-65 + volume + low VIX + RISK-ON futures + positive/neutral headlines.\n"
+    "SHORT: downtrend OR overbought RSI>72 + risk-off + elevated VIX + negative headlines supporting move.\n"
+    "Headline score >+30 = bullish boost. Score <-30 = bearish signal or long abort.\n"
+    "Reddit trending bullish = retail momentum building. Reddit trending bearish = contrarian or confirm short.\n"
+    "Sector rotation matters — don't fight the tape. If sector is out of favor, be stricter.\n"
+    "Minimum 1.5:1 R/R required. Protect capital first. Never rationalize a bad trade."
 )
 
 def score_signal(sig: dict) -> dict:
@@ -933,13 +1172,16 @@ def _tg(text: str):
         log(f"Telegram error: {e}", "WARN")
 
 def alert_signal(sig: dict):
-    d  = "📈 LONG" if sig["direction"] == "long" else "📉 SHORT"
-    ai = f"\nAI: {sig.get('ai_score',0):.0f}/100 — {sig.get('ai_reasoning','')[:120]}" if sig.get("ai_score") else ""
+    d   = "📈 LONG" if sig["direction"] == "long" else "📉 SHORT"
+    ai  = f"\nAI: {sig.get('ai_score',0):.0f}/100 — {sig.get('ai_reasoning','')[:120]}" if sig.get("ai_score") else ""
+    hl  = sig.get("headline_score", 0)
+    hl_str = f"\nHeadlines: {hl:+.0f} ({'🟢 bullish' if hl > 20 else '🔴 bearish' if hl < -20 else '⚪ neutral'})" if hl != 0 else ""
+    reddit_str = "\n🔥 Reddit trending" if sig.get("reddit_trending") else ""
     _tg(
         f"*{d} SIGNAL — {sig['symbol']}*\n"
         f"Entry: ${sig['entry']:.2f}  Stop: ${sig['stop']:.2f}  Target: ${sig['target']:.2f}\n"
         f"R/R: {sig['rr']:.2f}  Criteria: {sig['criteria']:.0f}/100"
-        f"{ai}\n"
+        f"{hl_str}{reddit_str}{ai}\n"
         f"VIX: {macro.vix:.1f} ({macro.vix_regime})  Regime: {macro.market_regime}"
     )
 
