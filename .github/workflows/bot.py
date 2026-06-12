@@ -26,6 +26,9 @@ PAPER_MODE        = os.environ.get("PAPER_MODE", "true").lower() == "true"
 ACCOUNT_EQUITY    = float(os.environ.get("ACCOUNT_EQUITY", "100000"))
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
+GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO       = os.environ.get("GITHUB_REPOSITORY", "")
+DASHBOARD_URL     = os.environ.get("DASHBOARD_URL", "")
 
 ALPACA_HEADERS  = {
     "APCA-API-KEY-ID":     ALPACA_KEY,
@@ -38,8 +41,44 @@ OPUS_MODEL   = "claude-opus-4-5"
 SONNET_MODEL = "claude-sonnet-4-5"
 
 # ── Watchlist ──────────────────────────────────────────────────────────────────
-WATCHLIST       = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD", "TSLA"]
-OPTIONS_TICKERS = ["SPY", "QQQ", "AAPL", "NVDA", "TSLA"]
+# Diversified across sectors, liquidity, and headline sensitivity
+# Not just big names — includes mid-caps, sector plays, and news-driven movers
+WATCHLIST = [
+    # Index ETFs — market context + tradeable
+    "SPY", "QQQ", "IWM",
+    # Mega cap tech — high liquidity, options depth
+    "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN",
+    # High-beta / news-driven
+    "TSLA", "AMD", "PLTR", "COIN",
+    # Financials — rate sensitive, macro-driven
+    "JPM", "BAC", "GS",
+    # Energy — commodity + geopolitical headline driven
+    "XOM", "CVX",
+    # Healthcare — FDA headlines, biotech volatility
+    "UNH", "LLY",
+    # Sector ETFs — rotation signals
+    "XLK", "XLF", "XLE", "XLV",
+    # Volatility / macro proxy
+    "TLT", "GLD",
+]
+
+OPTIONS_TICKERS = [
+    "SPY", "QQQ", "AAPL", "NVDA", "TSLA",
+    "MSFT", "META", "AMD", "PLTR", "IWM",
+]
+
+# Headline-sensitive tickers — get extra news weight in scoring
+HEADLINE_SENSITIVE = [
+    "TSLA", "PLTR", "COIN", "AMD", "META",
+    "LLY", "COIN", "GS", "XOM",
+]
+
+# Sector map — used for rotation analysis
+SECTOR_MAP = {
+    "XLK": "tech", "XLF": "financials", "XLE": "energy",
+    "XLV": "healthcare", "TLT": "bonds", "GLD": "gold",
+    "IWM": "small_cap",
+}
 
 # ── Risk config ────────────────────────────────────────────────────────────────
 RISK = {
@@ -218,6 +257,7 @@ class TickerData:
         self.earnings_within_5d = False
         self.earnings_date = None
         self.has_negative_news = False
+        self.headline_score = 0.0   # -100 to +100
         self.headlines = []
 
 class MacroData:
@@ -230,6 +270,9 @@ class MacroData:
         self.upcoming_events = []
         self.futures_sentiment = "NEUTRAL"
         self.risk_score = 0
+        self.reddit_mentions = {}    # symbol -> mention data
+        self.sector_rotation = {}    # sector -> rotation data
+        self.unusual_volume  = []    # list of unusual volume symbols
 
 tickers: dict[str, TickerData] = {}
 macro = MacroData()
@@ -237,7 +280,132 @@ macro = MacroData()
 NEG_KEYWORDS = [
     "fraud","sec investigation","bankruptcy","recall","downgrade",
     "guidance cut","earnings miss","layoff","lawsuit","restatement","delisting",
+    "data breach","accounting","whistleblower","short seller","going concern",
 ]
+
+POS_KEYWORDS = [
+    "beat expectations","record revenue","upgrade","raised guidance","buyback",
+    "dividend increase","fda approval","contract win","partnership","acquisition",
+    "ai deal","data center","earnings beat","raised forecast","record profit",
+]
+
+def score_headlines(headlines: list, symbol: str) -> dict:
+    """
+    Score a list of headlines for a ticker.
+    Returns sentiment score (-100 to +100), flags, and key headlines.
+    Headline-sensitive tickers get amplified scoring.
+    """
+    if not headlines:
+        return {"score": 0, "bullish": 0, "bearish": 0,
+                "has_negative": False, "has_positive": False, "key": []}
+
+    bullish = 0
+    bearish = 0
+    key     = []
+
+    for h in headlines:
+        h_low = h.lower()
+        pos = sum(1 for kw in POS_KEYWORDS if kw in h_low)
+        neg = sum(1 for kw in NEG_KEYWORDS if kw in h_low)
+        bullish += pos
+        bearish += neg
+        if pos > 0 or neg > 0:
+            key.append(f"{'+ ' if pos > neg else '- '}{h[:80]}")
+
+    # Amplify for headline-sensitive tickers
+    amp = 1.5 if symbol in HEADLINE_SENSITIVE else 1.0
+    score = round((bullish - bearish) * 20 * amp, 1)
+    score = max(-100, min(100, score))
+
+    return {
+        "score":        score,
+        "bullish":      bullish,
+        "bearish":      bearish,
+        "has_negative": bearish > 0,
+        "has_positive": bullish > 0,
+        "key":          key[:3],
+    }
+
+
+def fetch_reddit_mentions(symbols: list) -> dict:
+    """
+    Pull Reddit mentions from r/wallstreetbets and r/stocks.
+    Returns dict of symbol -> {mentions, bullish, bearish, trending}.
+    Free, no auth needed.
+    """
+    mentions = {s: {"mentions": 0, "bullish": 0, "bearish": 0, "trending": False}
+                for s in symbols}
+    bull_kw = ["calls","bull","long","buy","moon","breakout","squeeze","beat","upgrade"]
+    bear_kw = ["puts","bear","short","sell","crash","drop","miss","downgrade","dump"]
+
+    for sub in ["wallstreetbets", "stocks", "options", "investing"]:
+        for sort in ["hot", "new"]:
+            try:
+                r = requests.get(
+                    f"https://www.reddit.com/r/{sub}/{sort}.json?limit=25",
+                    headers={"User-Agent": "boticus-sentiment/1.0"},
+                    timeout=8
+                )
+                if r.status_code != 200:
+                    continue
+                posts = r.json().get("data", {}).get("children", [])
+                for post in posts:
+                    text = (post["data"].get("title","") + " " +
+                            post["data"].get("selftext","")[:200]).lower()
+                    for sym in symbols:
+                        if re.search(r'\b' + sym.lower() + r'\b', text):
+                            mentions[sym]["mentions"] += 1
+                            mentions[sym]["bullish"] += sum(1 for k in bull_kw if k in text)
+                            mentions[sym]["bearish"] += sum(1 for k in bear_kw if k in text)
+            except: pass
+        time.sleep(0.3)
+
+    # Flag trending — mentioned 3+ times
+    for sym in mentions:
+        if mentions[sym]["mentions"] >= 3:
+            mentions[sym]["trending"] = True
+            log(f"  Reddit trending: {sym} ({mentions[sym]['mentions']} mentions, "
+                f"bull:{mentions[sym]['bullish']} bear:{mentions[sym]['bearish']})")
+
+    return mentions
+
+
+def fetch_unusual_volume_scan() -> list:
+    """
+    Scan watchlist for unusual volume using yfinance.
+    Returns list of symbols with >2x average volume.
+    """
+    unusual = []
+    for sym, t in tickers.items():
+        if t.vol_ratio >= 2.0:
+            unusual.append({"symbol": sym, "vol_ratio": t.vol_ratio, "price": t.price})
+            log(f"  Unusual volume: {sym} {t.vol_ratio:.1f}x avg")
+    return unusual
+
+
+def fetch_sector_rotation() -> dict:
+    """
+    Detect which sectors are in/out of favor today.
+    Uses sector ETF performance to guide signal weighting.
+    """
+    rotation = {}
+    for etf, sector in SECTOR_MAP.items():
+        t = tickers.get(etf)
+        if t and t.change_pct != 0:
+            rotation[sector] = {
+                "etf":        etf,
+                "change_pct": t.change_pct,
+                "trend":      "up" if t.price > t.sma_50 else "down",
+                "favored":    t.change_pct > 0.3,
+            }
+
+    # Log top movers
+    if rotation:
+        top = sorted(rotation.items(), key=lambda x: x[1]["change_pct"], reverse=True)
+        log(f"  Sector rotation — leading: {top[0][0]} ({top[0][1]['change_pct']:+.1f}%) "
+            f"lagging: {top[-1][0]} ({top[-1][1]['change_pct']:+.1f}%)")
+
+    return rotation
 
 def get_market_session() -> str:
     now = datetime.now(ET)
@@ -283,20 +451,22 @@ def fetch_price_data():
                     earnings_5d = 0 <= days <= 5
                     earnings_dt = str(ed)
             except: pass
-            # News via Alpaca
-            headlines = []; has_neg = False
+            # News via Alpaca — enhanced with headline scoring
+            headlines = []; has_neg = False; headline_score = 0
             try:
-                since = (datetime.now(ET) - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                since = (datetime.now(ET) - timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
                 r = requests.get(
                     f"{ALPACA_DATA}/v1beta1/news",
                     headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
-                    params={"symbols": symbol, "start": since, "limit": 10},
+                    params={"symbols": symbol, "start": since, "limit": 15},
                     timeout=8
                 )
                 if r.ok:
                     articles = r.json().get("news", [])
-                    headlines = [a["headline"] for a in articles[:5]]
-                    has_neg   = any(kw in h.lower() for h in headlines for kw in NEG_KEYWORDS)
+                    headlines = [a["headline"] for a in articles[:8]]
+                    hs = score_headlines(headlines, symbol)
+                    has_neg      = hs["has_negative"]
+                    headline_score = hs["score"]
             except: pass
             t = TickerData(symbol)
             t.price = round(price, 2);  t.prev_close = round(prev_close, 2)
@@ -307,7 +477,9 @@ def fetch_price_data():
             t.rsi_14  = rsi; t.atr_14 = atr; t.atr_pct = round(atr_pct, 4)
             t.iv_rank = 50.0; t.implied_move = round(atr_pct * 2, 3)
             t.earnings_within_5d = earnings_5d; t.earnings_date = earnings_dt
-            t.has_negative_news  = has_neg; t.headlines = headlines
+            t.has_negative_news  = has_neg
+            t.headline_score     = headline_score
+            t.headlines = headlines
             tickers[symbol] = t
             trend = "↑" if price > sma_50 > sma_200 else "↓" if price < sma_50 else "→"
             earn  = " ⚠️EARN" if earnings_5d else ""
@@ -388,6 +560,19 @@ def fetch_macro():
         events = [e for e,f in [("FOMC",macro.fomc_24h),("CPI",macro.cpi_24h),("Jobs",macro.jobs_24h)] if f]
         log(f"  ⚠️  HIGH-IMPACT EVENT TODAY: {events}", "WARN")
 
+    # Reddit sentiment (runs after price data is loaded)
+    log("  Scanning Reddit sentiment...")
+    try:
+        macro.reddit_mentions = fetch_reddit_mentions(WATCHLIST)
+    except Exception as e:
+        log(f"  Reddit error: {e}", "WARN")
+
+    # Sector rotation
+    macro.sector_rotation = fetch_sector_rotation()
+
+    # Unusual volume
+    macro.unusual_volume = fetch_unusual_volume_scan()
+
 def build_context(symbol=None) -> str:
     m = macro
     lines = [
@@ -400,6 +585,20 @@ def build_context(symbol=None) -> str:
     ]
     if m.fomc_24h or m.cpi_24h or m.jobs_24h:
         lines.append("⚠️ HIGH-IMPACT EVENT IN 24H")
+
+    # Sector rotation summary
+    if m.sector_rotation:
+        leading = [(s, d) for s, d in m.sector_rotation.items() if d["favored"]]
+        lagging = [(s, d) for s, d in m.sector_rotation.items() if not d["favored"]]
+        if leading:
+            lines.append(f"Sectors leading: {', '.join(s for s,_ in leading[:3])}")
+        if lagging:
+            lines.append(f"Sectors lagging: {', '.join(s for s,_ in lagging[:3])}")
+
+    # Unusual volume flags
+    if m.unusual_volume:
+        lines.append(f"Unusual volume: {', '.join(u['symbol'] for u in m.unusual_volume[:5])}")
+
     if symbol and symbol in tickers:
         t = tickers[symbol]
         lines += [
@@ -408,15 +607,30 @@ def build_context(symbol=None) -> str:
             f"RSI: {t.rsi_14:.1f} | ATR: {t.atr_pct:.2%} | Vol ratio: {t.vol_ratio:.2f}x",
             f"SMA50: ${t.sma_50:.2f} | SMA200: ${t.sma_200:.2f}",
             f"Trend: {'UPTREND' if t.price > t.sma_50 > t.sma_200 else 'DOWNTREND' if t.price < t.sma_50 < t.sma_200 else 'MIXED'}",
+            f"Headline score: {t.headline_score:+.0f}/100 ({'bullish' if t.headline_score > 20 else 'bearish' if t.headline_score < -20 else 'neutral'})",
             f"Earnings within 5d: {t.earnings_within_5d}",
         ]
+        # Reddit mentions
+        reddit = m.reddit_mentions.get(symbol, {})
+        if reddit.get("mentions", 0) > 0:
+            bias = "bullish" if reddit["bullish"] > reddit["bearish"] else "bearish" if reddit["bearish"] > reddit["bullish"] else "neutral"
+            lines.append(f"Reddit: {reddit['mentions']} mentions ({bias}) {'🔥 TRENDING' if reddit.get('trending') else ''}")
+
+        # Sector context
+        sym_sector = SECTOR_MAP.get(symbol)
+        if sym_sector and sym_sector in m.sector_rotation:
+            sr = m.sector_rotation[sym_sector]
+            lines.append(f"Sector ({sym_sector}): {sr['change_pct']:+.1f}% today ({'favored' if sr['favored'] else 'out of favor'})")
+
         if t.headlines:
             lines.append("Headlines:")
-            for h in t.headlines[:3]: lines.append(f"  • {h}")
+            for h in t.headlines[:4]: lines.append(f"  • {h}")
+
     lines.append("\n=== WATCHLIST ===")
     for sym, tick in tickers.items():
         if sym == symbol: continue
-        lines.append(f"{sym}: ${tick.price:.2f} ({tick.change_pct:+.1f}%) RSI:{tick.rsi_14:.0f}")
+        hl = f" HL:{tick.headline_score:+.0f}" if tick.headline_score != 0 else ""
+        lines.append(f"{sym}: ${tick.price:.2f} ({tick.change_pct:+.1f}%) RSI:{tick.rsi_14:.0f}{hl}")
     return "\n".join(lines)
 
 
@@ -430,42 +644,68 @@ def scan_long(symbol) -> dict | None:
     m = macro
     # Hard gates
     if t.earnings_within_5d: return None
-    if t.has_negative_news:  return None
+    if t.has_negative_news and t.headline_score < -30: return None
     if m.fomc_24h or m.cpi_24h or m.jobs_24h: return None
-    if macro.risk_score <= -2: return None  # RISK-OFF — no longs
-    # Trend
+    if macro.risk_score <= -2: return None
+    # Trend — tightened, require >0.5% above SMA50
     if not (t.price > t.sma_50 > t.sma_200): return None
-    trend_score = min(100, 90 + (t.price - t.sma_50) / t.sma_50 * 200)
-    # RSI
+    pct_above_50 = (t.price - t.sma_50) / t.sma_50
+    if pct_above_50 < 0.005: return None
+    trend_score = min(100, 90 + pct_above_50 * 200)
+    # RSI — tightened upper bound to 65
     if not (RISK["rsi_min"] <= t.rsi_14 <= RISK["rsi_max"]): return None
-    mom_score = 100 - abs(t.rsi_14 - 52) * 2.5
-    # Volume
+    if t.rsi_14 > 65: return None
+    mom_score = max(50, 100 - abs(t.rsi_14 - 52) * 2.5)
+    # Volume — heavier penalty
     vol_score = min(100, 55 + (t.vol_ratio - 1) * 25)
-    if t.vol_ratio < RISK["volume_min_mult"]: vol_score *= 0.5
+    if t.vol_ratio < RISK["volume_min_mult"]: vol_score *= 0.4
+    if t.vol_ratio < 0.8: return None
     # ATR
     if t.atr_pct > RISK["atr_pct_max"]: return None
-    atr_score = 100 if 0.01 <= t.atr_pct <= 0.03 else 80
-    # Macro
+    if t.atr_pct < 0.005: return None
+    atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
+    # Macro — tightened
     mac_score = (100 if m.market_regime == "trending_up" else
-                 80  if m.market_regime == "ranging" else
-                 50  if m.market_regime == "volatile" else 20)
-    if m.vix_regime == "fear":     mac_score -= 30
-    elif m.vix_regime == "elevated": mac_score -= 15
-    if m.yield_curve < -0.5:       mac_score -= 10
+                 75  if m.market_regime == "ranging" else
+                 40  if m.market_regime == "volatile" else 15)
+    if m.vix_regime == "fear":      mac_score -= 35
+    elif m.vix_regime == "elevated": mac_score -= 20
+    if m.yield_curve < -0.5:         mac_score -= 10
+    if mac_score < 30: return None
+    # Headline + sentiment adjustments
+    hl_score = max(0, min(100, 50 + t.headline_score / 2))
+    reddit = m.reddit_mentions.get(symbol, {})
+    reddit_adj = 8 if (reddit.get("trending") and reddit.get("bullish",0) > reddit.get("bearish",0)) else (
+                -15 if (reddit.get("trending") and reddit.get("bearish",0) > reddit.get("bullish",0)) else 0)
+    sym_sector = SECTOR_MAP.get(symbol)
+    sector_adj = (5 if sym_sector and m.sector_rotation.get(sym_sector, {}).get("favored") else
+                 -5 if sym_sector and sym_sector in m.sector_rotation else 0)
+    is_unusual  = any(u["symbol"] == symbol for u in m.unusual_volume)
+    unusual_adj = 5 if is_unusual else 0
     criteria = (trend_score*0.25 + mom_score*0.20 + vol_score*0.20 +
-                atr_score*0.15 + mac_score*0.20)
-    if criteria < 55: return None
+                atr_score*0.15 + mac_score*0.15 + hl_score*0.05 +
+                reddit_adj + sector_adj + unusual_adj)
+    if criteria < 60: return None
     atr    = t.atr_14 or t.price * 0.015
     stop   = round(t.price - RISK["stop_loss_atr_mult"]   * atr, 2)
     target = round(t.price + RISK["take_profit_atr_mult"] * atr, 2)
     rr     = round((target - t.price) / (t.price - stop), 2) if t.price > stop else 0
+    if rr < 1.5: return None
+    notes = [f"Trend↑ {pct_above_50:.1%} above SMA50",
+             f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}"]
+    if t.headline_score > 20: notes.append(f"Headlines bullish ({t.headline_score:+.0f})")
+    reddit_mentions = reddit.get("mentions", 0)
+    if reddit.get("trending"): notes.append(f"Reddit trending ({reddit_mentions} mentions)")
+    if is_unusual: notes.append(f"Unusual volume {t.vol_ratio:.1f}x")
     return {
         "symbol": symbol, "type": "stock_long", "direction": "long",
         "entry": t.price, "stop": stop, "target": target, "rr": rr,
         "criteria": round(criteria, 1),
         "scores": {"trend": trend_score, "momentum": mom_score,
                    "volume": vol_score, "atr": atr_score, "macro": mac_score},
-        "notes": [f"Trend↑ RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}"],
+        "notes": notes,
+        "headline_score": t.headline_score,
+        "reddit_trending": reddit.get("trending", False),
     }
 
 def scan_short(symbol) -> dict | None:
@@ -535,7 +775,7 @@ def scan_all() -> list:
 
 SYSTEM_PROMPT = (
     "You are a disciplined trading signal analyst. Trade BOTH directions.\n"
-    "You have pattern memory and full market context. USE BOTH.\n"
+    "You have pattern memory, market context, headline scores, and Reddit sentiment. USE ALL OF IT.\n"
     "Output ONLY valid JSON — no markdown, no preamble.\n\n"
     "Format: {\"score\":0-100,\"confidence\":\"low|medium|high\","
     "\"recommendation\":\"take|skip|reduce_size\","
@@ -544,10 +784,13 @@ SYSTEM_PROMPT = (
     "\"key_positives\":[\"x\"],\"key_risks\":[\"x\"],"
     "\"suggested_size_adjustment\":1.0,"
     "\"pattern_insight\":\"one sentence\"}\n\n"
-    "80-100=take, 65-79=good, 55-64=marginal, 0-54=skip.\n"
-    "LONG: needs uptrend + RSI 40-65 + volume + low VIX + RISK-ON or NEUTRAL futures.\n"
-    "SHORT: needs downtrend OR overbought + risk-off + elevated VIX + RISK-OFF futures.\n"
-    "Protect capital first. Never rationalize a bad trade."
+    "80-100=take, 65-79=good, 60-64=marginal, 0-59=skip.\n"
+    "LONG: uptrend >0.5% above SMA50 + RSI 40-65 + volume + low VIX + RISK-ON futures + positive/neutral headlines.\n"
+    "SHORT: downtrend OR overbought RSI>72 + risk-off + elevated VIX + negative headlines supporting move.\n"
+    "Headline score >+30 = bullish boost. Score <-30 = bearish signal or long abort.\n"
+    "Reddit trending bullish = retail momentum building. Reddit trending bearish = contrarian or confirm short.\n"
+    "Sector rotation matters — don't fight the tape. If sector is out of favor, be stricter.\n"
+    "Minimum 1.5:1 R/R required. Protect capital first. Never rationalize a bad trade."
 )
 
 def score_signal(sig: dict) -> dict:
@@ -797,6 +1040,7 @@ def main():
     # ── Post-close review ──────────────────────────────────────────────────
     if mode == "review" or (session == "closed" and now.hour == 16):
         generate_daily_review()
+        commit_state_to_github()
         # Run auto-adjust weekly on Fridays
         if now.weekday() == 4:
             log("Friday — running weekly auto-adjust...")
@@ -911,33 +1155,41 @@ def main():
 
     log(f"\nRun complete: {filled} new position(s) opened")
 
+    # Commit state to GitHub so Streamlit dashboard stays current
+    commit_state_to_github()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TELEGRAM ALERTS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _tg(text: str):
-    """Send a message to Telegram. Fails silently if not configured."""
+    """Send a message to Telegram. Logs response for debugging."""
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        log("Telegram: skipped — token or chat_id missing", "WARN")
         return
     try:
-        requests.post(
+        resp = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={"chat_id": TELEGRAM_CHAT_ID, "text": text,
                   "parse_mode": "Markdown"},
             timeout=8
         )
+        log(f"Telegram response: {resp.status_code} — {resp.text[:150]}")
     except Exception as e:
         log(f"Telegram error: {e}", "WARN")
 
 def alert_signal(sig: dict):
-    d  = "📈 LONG" if sig["direction"] == "long" else "📉 SHORT"
-    ai = f"\nAI: {sig.get('ai_score',0):.0f}/100 — {sig.get('ai_reasoning','')[:120]}" if sig.get("ai_score") else ""
+    d   = "📈 LONG" if sig["direction"] == "long" else "📉 SHORT"
+    ai  = f"\nAI: {sig.get('ai_score',0):.0f}/100 — {sig.get('ai_reasoning','')[:120]}" if sig.get("ai_score") else ""
+    hl  = sig.get("headline_score", 0)
+    hl_str = f"\nHeadlines: {hl:+.0f} ({'🟢 bullish' if hl > 20 else '🔴 bearish' if hl < -20 else '⚪ neutral'})" if hl != 0 else ""
+    reddit_str = "\n🔥 Reddit trending" if sig.get("reddit_trending") else ""
     _tg(
         f"*{d} SIGNAL — {sig['symbol']}*\n"
         f"Entry: ${sig['entry']:.2f}  Stop: ${sig['stop']:.2f}  Target: ${sig['target']:.2f}\n"
         f"R/R: {sig['rr']:.2f}  Criteria: {sig['criteria']:.0f}/100"
-        f"{ai}\n"
+        f"{hl_str}{reddit_str}{ai}\n"
         f"VIX: {macro.vix:.1f} ({macro.vix_regime})  Regime: {macro.market_regime}"
     )
 
@@ -973,15 +1225,17 @@ def alert_kill_switch(loss_pct: float, equity: float):
     )
 
 def alert_daily_summary(review: str, stats: dict):
-    wins = stats.get("wins", 0)
+    wins  = stats.get("wins", 0)
     total = stats.get("total", 0)
-    pnl = stats.get("pnl", 0.0)
-    wr = wins / total * 100 if total else 0
+    pnl   = stats.get("pnl", 0.0)
+    wr    = wins / total * 100 if total else 0
+    dash  = f"\n🔗 [Dashboard]({DASHBOARD_URL})" if DASHBOARD_URL else ""
     _tg(
         f"📊 *Daily Summary — {date.today().isoformat()}*\n"
         f"Trades: {total}  |  W:{wins} L:{total-wins}  |  WR: {wr:.0f}%\n"
-        f"P&L: ${pnl:+.2f}\n\n"
-        f"{review[:600]}"
+        f"P&L: ${pnl:+.2f}"
+        f"{dash}\n\n"
+        f"{review[:500]}"
     )
 
 def alert_weekly_summary(review: str, stats: dict):
@@ -995,11 +1249,13 @@ def alert_weekly_summary(review: str, stats: dict):
 
 def send_startup_ping():
     mode = "PAPER" if PAPER_MODE else "🚨 LIVE"
+    dash = f"\n🔗 [Dashboard]({DASHBOARD_URL})" if DASHBOARD_URL else ""
     _tg(
         f"🤖 *Boticus started [{mode}]*\n"
         f"Session: {get_market_session()}  |  "
         f"VIX: {macro.vix:.1f}  |  Regime: {macro.market_regime}\n"
-        f"Watchlist: {', '.join(WATCHLIST)}"
+        f"Watchlist: {len(WATCHLIST)} tickers"
+        f"{dash}"
     )
 
 
@@ -1398,151 +1654,402 @@ def run_auto_adjust(backtest: dict = None, notify: bool = True) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STREAMLIT DASHBOARD — generates dashboard.py for local or Streamlit Cloud use
+# STATE COMMIT — pushes bot_state/ data files back to GitHub repo after each run
+# so Streamlit Cloud can read them as a live data source
+# ══════════════════════════════════════════════════════════════════════════════
+
+def commit_state_to_github():
+    """
+    Commits trades.json, feedback.json, backtest_latest.json, auto_adjust_latest.json
+    back to the GitHub repo so Streamlit Cloud can read live data.
+    Uses GITHUB_TOKEN (automatically available in Actions) and GITHUB_REPOSITORY.
+    """
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        log("State commit: GITHUB_TOKEN or GITHUB_REPOSITORY not set — skipping", "WARN")
+        return
+
+    import base64
+    api_base = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
+    headers  = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept":        "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2026-11-28",
+    }
+
+    files_to_commit = [
+        "trades.json",
+        "feedback.json",
+        "backtest_latest.json",
+        "auto_adjust_latest.json",
+    ]
+
+    committed = 0
+    for filename in files_to_commit:
+        filepath = STATE_DIR / filename
+        if not filepath.exists():
+            continue
+        try:
+            content     = filepath.read_bytes()
+            b64_content = base64.b64encode(content).decode()
+            repo_path   = f"bot_state/{filename}"
+
+            # Get current SHA if file exists (needed for update)
+            sha = None
+            r = requests.get(f"{api_base}/{repo_path}", headers=headers, timeout=8)
+            if r.status_code == 200:
+                sha = r.json().get("sha")
+
+            payload = {
+                "message": f"bot: update {filename} [{datetime.now(ET).strftime('%Y-%m-%d %H:%M ET')}]",
+                "content": b64_content,
+                "branch":  "main",
+            }
+            if sha:
+                payload["sha"] = sha
+
+            r = requests.put(f"{api_base}/{repo_path}", headers=headers,
+                             json=payload, timeout=15)
+            if r.status_code in (200, 201):
+                committed += 1
+                log(f"  Committed {filename} to repo")
+            else:
+                log(f"  Commit failed for {filename}: {r.status_code} {r.text[:100]}", "WARN")
+        except Exception as e:
+            log(f"  Commit error for {filename}: {e}", "WARN")
+
+    if committed > 0:
+        log(f"State committed to GitHub: {committed} file(s)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STREAMLIT DASHBOARD — full connected version
+# Reads data from GitHub repo (committed by bot after each run)
+# Deploy free at share.streamlit.io — connect boticus repo, set main file to dashboard.py
 # ══════════════════════════════════════════════════════════════════════════════
 
 DASHBOARD_CODE = '''
 import streamlit as st
-import json, os
+import json, os, requests
 from pathlib import Path
 from datetime import datetime, date
 
-st.set_page_config(page_title="Boticus", page_icon="🤖", layout="wide")
-st.title("🤖 Boticus — Trading Bot Dashboard")
+st.set_page_config(
+    page_title="Boticus",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-STATE_DIR = Path(os.environ.get("STATE_DIR", "bot_state"))
+# ── Data loading — reads from bot_state/ folder in repo ──────────────────────
+DATA_DIR = Path("bot_state")
 
 def load(filename):
-    p = STATE_DIR / filename
+    p = DATA_DIR / filename
     if p.exists():
-        try: return json.loads(p.read_text())
-        except: pass
+        try:
+            return json.loads(p.read_text())
+        except:
+            pass
     return None
 
-# ── Header metrics ────────────────────────────────────────────────────────────
-trades   = load("trades.json") or []
+def load_log(lines=60):
+    p = DATA_DIR / "bot.log"
+    if p.exists():
+        try:
+            return p.read_text().strip().split("\\n")[-lines:]
+        except:
+            pass
+    return []
+
+# ── Auto-refresh every 5 minutes ─────────────────────────────────────────────
+st.markdown(
+    "<script>setTimeout(()=>window.location.reload(), 300000)</script>",
+    unsafe_allow_html=True
+)
+
+# ── Load all data ─────────────────────────────────────────────────────────────
+trades   = load("trades.json")   or []
 feedback = load("feedback.json") or []
 bt       = load("backtest_latest.json")
 adj      = load("auto_adjust_latest.json")
 
-open_t   = [t for t in trades if t.get("status") == "open"]
-closed_t = [t for t in trades if t.get("status") == "closed"]
-today_t  = [t for t in trades if t.get("opened_at","")[:10] == date.today().isoformat()]
-wins     = [t for t in feedback if t.get("result") == "win"]
+open_t    = [t for t in trades if t.get("status") == "open"]
+closed_t  = [t for t in trades if t.get("status") == "closed"]
+today_str = date.today().isoformat()
+today_t   = [t for t in trades if t.get("opened_at", "")[:10] == today_str]
+wins      = [t for t in feedback if t.get("result") == "win"]
+losses    = [t for t in feedback if t.get("result") == "loss"]
 total_pnl = sum(t.get("pnl_dollar", 0) for t in feedback)
-wr       = len(wins) / len(feedback) * 100 if feedback else 0
+today_pnl = sum(t.get("pnl_dollar", 0) for t in feedback
+                if t.get("date", "") == today_str)
+wr        = len(wins) / len(feedback) * 100 if feedback else 0
 
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Open Positions", len(open_t))
-col2.metric("Total Trades", len(feedback))
-col3.metric("Win Rate", f"{wr:.1f}%")
-col4.metric("Total P&L", f"${total_pnl:+,.2f}")
-col5.metric("Today's Trades", len(today_t))
+# ── Header ────────────────────────────────────────────────────────────────────
+st.title("🤖 Boticus")
+st.caption(f"Last data refresh: {datetime.now().strftime('%b %d %H:%M ET')} · Auto-refreshes every 5 min")
+
+# ── Top metrics ───────────────────────────────────────────────────────────────
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1.metric("Open Positions",  len(open_t),  delta=None)
+c2.metric("Total Trades",    len(feedback))
+c3.metric("Win Rate",        f"{wr:.1f}%",
+          delta=f"{wr-50:.1f}% vs 50%", delta_color="normal")
+c4.metric("Total P&L",       f"${total_pnl:+,.2f}",
+          delta_color="normal")
+c5.metric("Today P&L",       f"${today_pnl:+,.2f}",
+          delta_color="normal")
+c6.metric("Today Trades",    len(today_t))
 
 st.divider()
 
 # ── Open positions ────────────────────────────────────────────────────────────
-st.subheader("Open Positions")
-if open_t:
-    for t in open_t:
-        with st.container():
-            c1, c2, c3, c4, c5 = st.columns([2,1,1,1,2])
-            c1.write(f"**{t['symbol']}** {t['direction'].upper()}")
-            c2.write(f"Entry: ${t.get('entry_price',0):.2f}")
-            c3.write(f"Stop: ${t.get('stop_loss',0):.2f}")
-            c4.write(f"Target: ${t.get('take_profit',0):.2f}")
-            c5.write(f"AI: {t.get('ai_score','—')}/100 | Risk: ${t.get('risk_amount',0):.0f}")
-else:
-    st.info("No open positions")
+col_left, col_right = st.columns([3, 2])
+
+with col_left:
+    st.subheader("📊 Open Positions")
+    if open_t:
+        import pandas as pd
+        rows = []
+        for t in open_t:
+            rows.append({
+                "Symbol":    t.get("symbol", ""),
+                "Direction": t.get("direction", "").upper(),
+                "Entry":     f"${t.get('entry_price', 0):.2f}",
+                "Stop":      f"${t.get('stop_loss', 0):.2f}",
+                "Target":    f"${t.get('take_profit', 0):.2f}",
+                "Shares":    t.get("shares", 0),
+                "Risk $":    f"${t.get('risk_amount', 0):.0f}",
+                "AI Score":  t.get("ai_score", "—"),
+                "Opened":    t.get("opened_at", "")[:16].replace("T", " "),
+            })
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No open positions right now")
+
+# ── Today's activity ──────────────────────────────────────────────────────────
+with col_right:
+    st.subheader("📅 Today's Activity")
+    today_fb = [t for t in feedback if t.get("date", "") == today_str]
+    if today_fb:
+        for t in today_fb:
+            pnl  = t.get("pnl_pct", 0)
+            icon = "🟢" if pnl > 0 else "🔴"
+            st.write(f"{icon} **{t['symbol']}** {t.get('direction','').upper()} "
+                     f"| {pnl:+.1f}% | {t.get('close_reason','—')}")
+    else:
+        st.info("No completed trades today")
 
 st.divider()
 
-# ── Recent closed trades ──────────────────────────────────────────────────────
-st.subheader("Recent Closed Trades")
+# ── P&L curve ─────────────────────────────────────────────────────────────────
 if feedback:
-    recent = sorted(feedback, key=lambda x: x.get("date",""), reverse=True)[:20]
-    for t in recent:
-        pnl = t.get("pnl_pct", 0)
-        col = "🟢" if pnl > 0 else "🔴"
-        st.write(
-            f"{col} **{t['symbol']}** {t['direction']} | "
-            f"{t.get('date','')} | "
-            f"P&L: {pnl:+.1f}% | "
-            f"Reason: {t.get('close_reason','—')} | "
-            f"Regime: {t.get('regime','—')} | "
-            f"AI score: {t.get('ai_score','—')}"
-        )
-else:
-    st.info("No closed trades yet — keep the bot running")
-
-# ── P&L chart ─────────────────────────────────────────────────────────────────
-if feedback:
-    st.subheader("Cumulative P&L")
+    st.subheader("📈 Cumulative P&L")
     import pandas as pd
     df = pd.DataFrame(feedback)
     if "date" in df.columns and "pnl_dollar" in df.columns:
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date")
-        df["cumulative_pnl"] = df["pnl_dollar"].cumsum()
-        st.line_chart(df.set_index("date")["cumulative_pnl"])
+        df["cum_pnl"] = df["pnl_dollar"].cumsum()
+        df["win"]     = df["result"] == "win"
+
+        tab1, tab2, tab3 = st.tabs(["P&L Curve", "Trade History", "By Regime"])
+
+        with tab1:
+            st.line_chart(df.set_index("date")["cum_pnl"],
+                         use_container_width=True, height=300)
+
+        with tab2:
+            display = df[["date","symbol","direction","entry","exit",
+                          "pnl_pct","pnl_dollar","close_reason","regime","ai_score"]].copy()
+            display = display.sort_values("date", ascending=False)
+            display.columns = ["Date","Symbol","Dir","Entry","Exit",
+                               "P&L %","P&L $","Reason","Regime","AI Score"]
+            display["P&L %"] = display["P&L %"].map(lambda x: f"{x:+.2f}%")
+            display["P&L $"] = display["P&L $"].map(lambda x: f"${x:+.2f}")
+            st.dataframe(display.head(50), use_container_width=True, hide_index=True)
+
+        with tab3:
+            if "regime" in df.columns:
+                regime_stats = df.groupby("regime").agg(
+                    trades=("win","count"),
+                    wins=("win","sum"),
+                    total_pnl=("pnl_dollar","sum"),
+                ).reset_index()
+                regime_stats["win_rate"] = (regime_stats["wins"] / regime_stats["trades"] * 100).round(1)
+                regime_stats["avg_pnl"]  = (regime_stats["total_pnl"] / regime_stats["trades"]).round(2)
+                st.dataframe(regime_stats, use_container_width=True, hide_index=True)
+
+st.divider()
+
+# ── Signal quality analysis ───────────────────────────────────────────────────
+if len(feedback) >= 5:
+    st.subheader("🔬 Signal Quality Analysis")
+    import pandas as pd
+    df = pd.DataFrame(feedback)
+
+    col_a, col_b, col_c = st.columns(3)
+
+    with col_a:
+        st.write("**Win Rate by AI Score**")
+        if "ai_score" in df.columns:
+            df["ai_bucket"] = pd.cut(df["ai_score"].fillna(0),
+                                     bins=[0,60,70,80,100],
+                                     labels=["55-60","60-70","70-80","80+"])
+            ab = df.groupby("ai_bucket", observed=True).apply(
+                lambda x: round(sum(x["result"]=="win")/len(x)*100, 1)
+            ).reset_index()
+            ab.columns = ["AI Score Range", "Win Rate %"]
+            st.dataframe(ab, use_container_width=True, hide_index=True)
+
+    with col_b:
+        st.write("**Win Rate by VIX**")
+        if "vix" in df.columns:
+            df["vix_bucket"] = pd.cut(df["vix"].fillna(20),
+                                      bins=[0,15,25,35,100],
+                                      labels=["<15 (low)","15-25 (normal)","25-35 (elevated)",">35 (fear)"])
+            vb = df.groupby("vix_bucket", observed=True).apply(
+                lambda x: round(sum(x["result"]=="win")/len(x)*100, 1)
+            ).reset_index()
+            vb.columns = ["VIX Range", "Win Rate %"]
+            st.dataframe(vb, use_container_width=True, hide_index=True)
+
+    with col_c:
+        st.write("**Stop vs Target Hits**")
+        if "close_reason" in df.columns:
+            stops   = sum(1 for t in feedback if "STOP"   in t.get("close_reason",""))
+            targets = sum(1 for t in feedback if "TARGET" in t.get("close_reason",""))
+            timeouts = len(feedback) - stops - targets
+            summary = pd.DataFrame({
+                "Outcome": ["Target Hit", "Stop Hit", "Timeout/Other"],
+                "Count":   [targets, stops, timeouts],
+                "Pct":     [f"{x/len(feedback)*100:.1f}%" for x in [targets, stops, timeouts]],
+            })
+            st.dataframe(summary, use_container_width=True, hide_index=True)
+
+st.divider()
 
 # ── Backtest results ──────────────────────────────────────────────────────────
 if bt:
-    st.divider()
-    st.subheader("Latest Backtest Results")
-    b1, b2, b3, b4 = st.columns(4)
-    b1.metric("Signals", bt.get("total_signals", 0))
-    b2.metric("Win Rate", f"{bt.get('win_rate',0):.1f}%")
-    b3.metric("Expectancy", f"{bt.get('expectancy_pct',0):+.2f}%")
-    b4.metric("Period", f"{bt.get('period_days',0)} days")
-    col_l, col_r = st.columns(2)
-    col_l.metric("Long Win Rate",  f"{bt.get('long_win_rate',0):.1f}%")
-    col_r.metric("Short Win Rate", f"{bt.get('short_win_rate',0):.1f}%")
-    if bt.get("regime_stats"):
-        st.write("**By regime:**")
-        for regime, stats in bt["regime_stats"].items():
-            total_r = stats["wins"] + stats["losses"]
-            if total_r:
-                rwr = stats["wins"] / total_r * 100
-                st.write(f"  {regime}: {rwr:.1f}% WR ({total_r} trades)")
+    st.subheader("📉 Backtest Results")
+    b1, b2, b3, b4, b5, b6 = st.columns(6)
+    b1.metric("Signals",       bt.get("total_signals", 0))
+    b2.metric("Win Rate",      f"{bt.get('win_rate',0):.1f}%")
+    b3.metric("Expectancy",    f"{bt.get('expectancy_pct',0):+.2f}%")
+    b4.metric("Avg Win",       f"{bt.get('avg_win_pct',0):+.2f}%")
+    b5.metric("Avg Loss",      f"{bt.get('avg_loss_pct',0):+.2f}%")
+    b6.metric("Period",        f"{bt.get('period_days',0)}d")
+
+    bl, br = st.columns(2)
+    with bl:
+        st.write("**Long signals**")
+        st.metric("Count",    bt.get("long_signals",0))
+        st.metric("Win Rate", f"{bt.get('long_win_rate',0):.1f}%")
+    with br:
+        st.write("**Short signals**")
+        st.metric("Count",    bt.get("short_signals",0))
+        st.metric("Win Rate", f"{bt.get('short_win_rate',0):.1f}%")
+
+    if bt.get("rsi_win_rates"):
+        st.write("**RSI bucket performance:**")
+        import pandas as pd
+        rsi_df = pd.DataFrame([
+            {"RSI Range": k, "Win Rate": f"{v:.1f}%"}
+            for k, v in bt["rsi_win_rates"].items()
+        ])
+        st.dataframe(rsi_df, use_container_width=True, hide_index=True)
 
 # ── Auto-adjust recommendations ───────────────────────────────────────────────
 if adj:
     st.divider()
-    st.subheader("Auto-Adjust Recommendations")
-    st.info(adj.get("summary",""))
-    st.write(f"**Priority change:** {adj.get('priority_change','')}")
-    st.write(f"**Confidence:** {adj.get('confidence','')}")
-    for a in adj.get("adjustments", []):
-        st.write(f"• `{a['param']}`: {a['current']} → **{a['suggested']}** — {a['reason']}")
+    st.subheader("🔧 Auto-Adjust Recommendations")
+    st.info(f"**Summary:** {adj.get('summary','')}")
+    col1, col2 = st.columns(2)
+    col1.write(f"**Priority change:** {adj.get('priority_change','')}")
+    col2.write(f"**Confidence:** {adj.get('confidence','').upper()}")
+    if adj.get("adjustments"):
+        import pandas as pd
+        adj_df = pd.DataFrame([
+            {"Parameter": a["param"],
+             "Current":   a["current"],
+             "Suggested": a["suggested"],
+             "Reason":    a["reason"]}
+            for a in adj["adjustments"]
+        ])
+        st.dataframe(adj_df, use_container_width=True, hide_index=True)
+    st.warning("Apply changes by editing the RISK dict in bot.py and pushing to GitHub.")
 
-# ── Log viewer ────────────────────────────────────────────────────────────────
+# ── Live log ──────────────────────────────────────────────────────────────────
 st.divider()
-st.subheader("Latest Log")
-log_file = STATE_DIR / "bot.log"
-if log_file.exists():
-    lines = log_file.read_text().strip().split("\\n")
-    st.code("\\n".join(lines[-50:]), language="text")
-else:
-    st.info("No log file yet")
-
-st.caption(f"Last refreshed: {datetime.now().strftime('%H:%M:%S')} ET | Auto-refreshes every 60s")
-st.markdown(
-    "<script>setTimeout(()=>window.location.reload(), 60000)</script>",
-    unsafe_allow_html=True
-)
+with st.expander("📋 Latest Bot Log (last 60 lines)", expanded=False):
+    log_path = DATA_DIR / "bot.log"
+    if log_path.exists():
+        log_lines = log_path.read_text().strip().split("\\n")[-60:]
+        # Color code by level
+        colored = []
+        for line in log_lines:
+            if "ERROR" in line:   colored.append(f"🔴 {line}")
+            elif "WARN"  in line: colored.append(f"🟡 {line}")
+            elif "APPROVED" in line: colored.append(f"✅ {line}")
+            elif "REJECTED" in line: colored.append(f"❌ {line}")
+            else:                 colored.append(f"   {line}")
+        st.code("\\n".join(colored), language="text")
+    else:
+        st.info("No log file yet")
 '''
 
+
 def generate_dashboard():
-    """Write the Streamlit dashboard file to the state directory."""
-    dash_file = STATE_DIR / "dashboard.py"
+    """
+    Write dashboard.py to repo root and commit it to GitHub.
+    """
+    dash_file = Path("dashboard.py")
     dash_file.write_text(DASHBOARD_CODE)
     log(f"Dashboard written to {dash_file}")
-    log("Run with: streamlit run bot_state/dashboard.py")
+
+    # Commit dashboard.py directly to GitHub
+    import base64
+    if GITHUB_TOKEN and GITHUB_REPO:
+        try:
+            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/dashboard.py"
+            headers = {
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2026-11-28",
+            }
+            b64 = base64.b64encode(dash_file.read_bytes()).decode()
+            # Get existing SHA if file exists
+            sha = None
+            r = requests.get(api_url, headers=headers, timeout=8)
+            if r.status_code == 200:
+                sha = r.json().get("sha")
+            payload = {
+                "message": f"bot: generate dashboard [{datetime.now(ET).strftime('%Y-%m-%d %H:%M ET')}]",
+                "content": b64,
+                "branch": "main",
+            }
+            if sha:
+                payload["sha"] = sha
+            r = requests.put(api_url, headers=headers, json=payload, timeout=15)
+            if r.status_code in (200, 201):
+                log("dashboard.py committed to GitHub repo successfully")
+            else:
+                log(f"dashboard.py commit failed: {r.status_code} {r.text[:150]}", "WARN")
+        except Exception as e:
+            log(f"dashboard.py commit error: {e}", "WARN")
+    else:
+        log("GITHUB_TOKEN not set — dashboard.py written locally only", "WARN")
+
+    dash_url = DASHBOARD_URL or "https://share.streamlit.io"
     _tg(
-        "📊 *Dashboard generated*\n"
-        "Run locally: `streamlit run bot_state/dashboard.py`\n"
-        "Or deploy to Streamlit Cloud for free — share the repo."
+        f"📊 *Dashboard committed to repo*\n"
+        f"File: `dashboard.py` now in boticus repo root\n\n"
+        f"*Deploy on Streamlit Cloud (free):*\n"
+        f"1. share.streamlit.io → New app\n"
+        f"2. Repo: jaydrama21-ai/boticus\n"
+        f"3. Main file: `dashboard.py`\n"
+        f"4. Deploy\n\n"
+        f"{f'Live dashboard: {dash_url}' if DASHBOARD_URL else 'Add DASHBOARD_URL secret once deployed'}"
     )
     return str(dash_file)
 
