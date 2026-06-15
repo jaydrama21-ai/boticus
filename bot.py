@@ -1521,12 +1521,6 @@ def run_position_monitor():
     eod_close_all()
 
     log("── Monitor complete ───────────────────────────────────────\n")
-    day_pnl     = sum(t.get("pnl", 0) for t in today_closed)
-    loss_pct    = day_pnl / equity if equity else 0
-    if loss_pct <= -RISK["max_daily_loss_pct"]:
-        log(f"KILL SWITCH: {loss_pct:.2%} daily loss (${day_pnl:.2f})", "WARN")
-        return True
-    return False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
