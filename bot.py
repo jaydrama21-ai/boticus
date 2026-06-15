@@ -40,45 +40,257 @@ ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 OPUS_MODEL   = "claude-opus-4-5"
 SONNET_MODEL = "claude-sonnet-4-5"
 
+
 # ── Watchlist ──────────────────────────────────────────────────────────────────
-# Diversified across sectors, liquidity, and headline sensitivity
-# Not just big names — includes mid-caps, sector plays, and news-driven movers
-WATCHLIST = [
+# CORE watchlist — always monitored, high liquidity, options depth
+# These never get removed — they're the foundation
+CORE_WATCHLIST = [
     # Index ETFs — market context + tradeable
-    "SPY", "QQQ", "IWM",
-    # Mega cap tech — high liquidity, options depth
+    "SPY", "QQQ", "IWM", "DIA",
+    # Mega cap tech
     "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN",
     # High-beta / news-driven
     "TSLA", "AMD", "PLTR", "COIN",
-    # Financials — rate sensitive, macro-driven
+    # Financials
     "JPM", "BAC", "GS",
-    # Energy — commodity + geopolitical headline driven
+    # Energy
     "XOM", "CVX",
-    # Healthcare — FDA headlines, biotech volatility
+    # Healthcare
     "UNH", "LLY",
     # Sector ETFs — rotation signals
-    "XLK", "XLF", "XLE", "XLV",
-    # Volatility / macro proxy
-    "TLT", "GLD",
+    "XLK", "XLF", "XLE", "XLV", "XBI", "XRT",
+    # Macro proxies
+    "TLT", "GLD", "SLV", "USO",
 ]
 
-OPTIONS_TICKERS = [
-    "SPY", "QQQ", "AAPL", "NVDA", "TSLA",
-    "MSFT", "META", "AMD", "PLTR", "IWM",
-]
-
-# Headline-sensitive tickers — get extra news weight in scoring
-HEADLINE_SENSITIVE = [
-    "TSLA", "PLTR", "COIN", "AMD", "META",
-    "LLY", "COIN", "GS", "XOM",
+# DYNAMIC candidate universe — scanned daily, best movers added temporarily
+# Covers biotech, meme/retail, small/mid cap, and sector plays
+DYNAMIC_UNIVERSE = [
+    # Biotech / pharma — FDA catalyst plays
+    "MRNA", "BNTX", "REGN", "BIIB", "GILD", "VRTX", "SRPT",
+    "SGEN", "ALNY", "INCY", "BMRN", "RGEN", "EXEL",
+    # Meme / WSB retail favorites
+    "GME", "AMC", "BBBY", "SOFI", "RIVN", "LCID", "HOOD",
+    "RBLX", "SNAP", "UBER", "LYFT", "DKNG", "PENN",
+    # Small / mid cap momentum
+    "SMCI", "CRWD", "PANW", "DDOG", "SNOW", "NET", "MDB",
+    "BILL", "ZS", "OKTA", "HUBS", "GTLB", "CELH",
+    # High momentum / growth
+    "SHOP", "MELI", "SE", "GRAB", "BABA", "JD", "PDD",
+    "ARM", "ASML", "TSM", "AVGO", "QCOM", "MRVL",
+    # Sector plays
+    "XHB", "ITB", "KRE", "ARKK", "SOXS", "SOXL",
+    "TQQQ", "SQQQ", "SPXL", "UVXY",
+    # Commodity / inflation plays
+    "FCX", "NEM", "AEM", "WPM", "GOLD", "MP", "LAC",
+    # Defense / aerospace
+    "LMT", "RTX", "NOC", "BA", "GD",
+    # Consumer
+    "AMZN", "TGT", "WMT", "COST", "HD", "LOW",
 ]
 
 # Sector map — used for rotation analysis
 SECTOR_MAP = {
     "XLK": "tech", "XLF": "financials", "XLE": "energy",
     "XLV": "healthcare", "TLT": "bonds", "GLD": "gold",
-    "IWM": "small_cap",
+    "IWM": "small_cap", "XBI": "biotech", "XRT": "retail",
+    "KRE": "regional_banks", "ARKK": "innovation",
+    "SLV": "silver", "USO": "oil",
 }
+
+# Headline-sensitive tickers
+HEADLINE_SENSITIVE = [
+    "TSLA", "PLTR", "COIN", "AMD", "META", "GME", "AMC",
+    "LLY", "MRNA", "BNTX", "GS", "XOM", "RIVN", "HOOD",
+    "SMCI", "NVDA", "BABA", "ARM",
+]
+
+OPTIONS_TICKERS = [
+    "SPY", "QQQ", "AAPL", "NVDA", "TSLA",
+    "MSFT", "META", "AMD", "PLTR", "IWM",
+    "XBI", "GLD", "TLT",
+]
+
+# Active watchlist — starts as core, gets dynamic tickers added/removed each day
+# Stored in STATE_DIR so it persists between runs
+_ACTIVE_WATCHLIST = None
+
+def load_active_watchlist() -> list:
+    """Load the current active watchlist from state file."""
+    global _ACTIVE_WATCHLIST
+    wl_file = STATE_DIR / "watchlist.json"
+    if wl_file.exists():
+        try:
+            data = json.loads(wl_file.read_text())
+            _ACTIVE_WATCHLIST = data.get("active", list(CORE_WATCHLIST))
+            return _ACTIVE_WATCHLIST
+        except: pass
+    _ACTIVE_WATCHLIST = list(CORE_WATCHLIST)
+    return _ACTIVE_WATCHLIST
+
+def save_active_watchlist(wl: list):
+    """Persist the active watchlist."""
+    global _ACTIVE_WATCHLIST
+    _ACTIVE_WATCHLIST = wl
+    wl_file = STATE_DIR / "watchlist.json"
+    wl_file.write_text(json.dumps({
+        "active":    wl,
+        "core":      CORE_WATCHLIST,
+        "updated_at": datetime.now(ET).isoformat(),
+    }, indent=2))
+
+def get_watchlist() -> list:
+    """Returns current active watchlist."""
+    if _ACTIVE_WATCHLIST is None:
+        return load_active_watchlist()
+    return _ACTIVE_WATCHLIST
+
+def update_dynamic_watchlist():
+    """
+    Daily watchlist refresh — runs at market open.
+    1. Scans DYNAMIC_UNIVERSE for hot candidates (volume, momentum, news)
+    2. Adds best movers to active watchlist (up to MAX_DYNAMIC slots)
+    3. Removes underperforming dynamic tickers (low volume, no signals, stale)
+    4. Core tickers are never removed
+    5. Sends Telegram summary of changes
+    """
+    import yfinance as yf
+    MAX_DYNAMIC   = 15   # Max dynamic tickers at any time
+    MIN_VOLUME    = 500_000  # Minimum avg daily volume to qualify
+    log("Updating dynamic watchlist...")
+
+    current_wl  = get_watchlist()
+    core_set    = set(CORE_WATCHLIST)
+    dynamic_now = [t for t in current_wl if t not in core_set]
+
+    # ── Score dynamic universe candidates ────────────────────────────────
+    candidates = []
+    for symbol in DYNAMIC_UNIVERSE:
+        if symbol in core_set:
+            continue
+        try:
+            ticker = yf.Ticker(symbol)
+            hist   = ticker.history(period="10d")
+            if hist.empty or len(hist) < 5:
+                continue
+
+            closes  = hist["Close"].values
+            volumes = hist["Volume"].values
+            avg_vol = float(np.mean(volumes[-10:]))
+
+            if avg_vol < MIN_VOLUME:
+                continue
+
+            # Score: momentum (5d return) + volume surge + RSI momentum
+            ret_5d    = (closes[-1] - closes[-5]) / closes[-5] * 100
+            vol_ratio = float(volumes[-1]) / avg_vol if avg_vol else 0
+            rsi       = calc_rsi(closes)
+
+            # Scoring formula
+            score = 0
+            score += min(40, abs(ret_5d) * 4)    # Big move = high score
+            score += min(30, vol_ratio * 15)       # Volume surge
+            score += 20 if 50 <= rsi <= 70 else 10 if 40 <= rsi <= 75 else 0
+            score += 10 if symbol in HEADLINE_SENSITIVE else 0
+
+            candidates.append({
+                "symbol":    symbol,
+                "score":     round(score, 1),
+                "ret_5d":    round(ret_5d, 2),
+                "vol_ratio": round(vol_ratio, 2),
+                "rsi":       round(rsi, 1),
+                "avg_vol":   int(avg_vol),
+            })
+        except: pass
+
+    # Sort by score
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    top_candidates = [c["symbol"] for c in candidates[:MAX_DYNAMIC]]
+
+    # ── Score existing dynamic tickers for removal ────────────────────────
+    to_remove = []
+    wl_file   = STATE_DIR / "watchlist.json"
+    # Load signal history to see which dynamic tickers have been useful
+    trades    = load_trades()
+    traded_syms = {t.get("symbol") for t in trades}
+
+    for sym in dynamic_now:
+        try:
+            ticker = yf.Ticker(sym)
+            hist   = ticker.history(period="5d")
+            if hist.empty:
+                to_remove.append((sym, "no price data"))
+                continue
+
+            closes  = hist["Close"].values
+            volumes = hist["Volume"].values
+            avg_vol = float(np.mean(volumes))
+
+            # Remove if: volume dried up, flat movement, or not in top candidates
+            ret_3d    = (closes[-1] - closes[-3]) / closes[-3] * 100 if len(closes) >= 3 else 0
+            vol_ratio = float(volumes[-1]) / avg_vol if avg_vol else 0
+
+            if avg_vol < MIN_VOLUME:
+                to_remove.append((sym, f"volume too low (avg {avg_vol:,.0f})"))
+            elif abs(ret_3d) < 0.5 and vol_ratio < 0.8 and sym not in traded_syms:
+                to_remove.append((sym, f"stale: {ret_3d:+.1f}% 3d, {vol_ratio:.1f}x vol"))
+        except:
+            to_remove.append((sym, "data error"))
+
+    # ── Build new watchlist ───────────────────────────────────────────────
+    # Start with core
+    new_wl = list(CORE_WATCHLIST)
+
+    # Keep dynamic tickers not being removed
+    kept = [s for s in dynamic_now if s not in [r[0] for r in to_remove]]
+    new_wl.extend(kept)
+
+    # Add new candidates (avoid duplicates)
+    added = []
+    for sym in top_candidates:
+        if sym not in new_wl and len([s for s in new_wl if s not in core_set]) < MAX_DYNAMIC:
+            new_wl.append(sym)
+            added.append(sym)
+
+    # Deduplicate while preserving order
+    seen = set()
+    new_wl = [x for x in new_wl if not (x in seen or seen.add(x))]
+
+    save_active_watchlist(new_wl)
+
+    # ── Summary ───────────────────────────────────────────────────────────
+    dynamic_after = [t for t in new_wl if t not in core_set]
+    log(f"Watchlist updated: {len(new_wl)} total "
+        f"({len(CORE_WATCHLIST)} core + {len(dynamic_after)} dynamic)")
+
+    if added or to_remove:
+        removed_syms = [r[0] for r in to_remove]
+        log(f"  Added: {added}")
+        log(f"  Removed: {removed_syms}")
+
+        top3 = candidates[:3]
+        top_str = "\n".join([
+            f"  {c['symbol']}: {c['ret_5d']:+.1f}% 5d | {c['vol_ratio']:.1f}x vol | RSI {c['rsi']:.0f}"
+            for c in top3
+        ])
+
+        _tg(
+            f"📋 *Watchlist Updated*\n"
+            f"Total: {len(new_wl)} tickers "
+            f"({len(CORE_WATCHLIST)} core + {len(dynamic_after)} dynamic)\n\n"
+            + (f"*Added ({len(added)}):* {', '.join(added)}\n" if added else "") +
+            (f"*Removed ({len(removed_syms)}):* {', '.join(removed_syms)}\n" if removed_syms else "") +
+            f"\n*Top movers in universe:*\n{top_str}"
+        )
+    else:
+        log("  No watchlist changes today")
+
+    return new_wl
+
+
+# ── Use WATCHLIST as alias for get_watchlist() ────────────────────────────────
+# Existing code references WATCHLIST — this makes it dynamic
+WATCHLIST = property(get_watchlist) if False else CORE_WATCHLIST  # bootstrap
 
 # ── Risk config ────────────────────────────────────────────────────────────────
 # DATA COLLECTION MODE — generating trade data for pattern learning
@@ -262,8 +474,10 @@ class TickerData:
         self.earnings_within_5d = False
         self.earnings_date = None
         self.has_negative_news = False
-        self.headline_score = 0.0   # -100 to +100
+        self.headline_score = 0.0
         self.headlines = []
+        self.macro_triggers = []   # High-impact macro events detected in headlines
+        self.macro_alert = False   # True if any high-impact macro trigger found
 
 class MacroData:
     def __init__(self):
@@ -283,33 +497,161 @@ tickers: dict[str, TickerData] = {}
 macro = MacroData()
 
 NEG_KEYWORDS = [
+    # ── Company-specific negatives ─────────────────────────────────────────
     "fraud","sec investigation","bankruptcy","recall","downgrade",
     "guidance cut","earnings miss","layoff","lawsuit","restatement","delisting",
     "data breach","accounting","whistleblower","short seller","going concern",
+    "class action","criminal charges","doj investigation","ftc investigation",
+    "product recall","safety recall","plant shutdown","factory fire",
+
+    # ── Macro / Fed negatives ──────────────────────────────────────────────
+    "rate hike","hawkish","tightening","inflation surge","cpi higher",
+    "recession fears","yield curve inverts","stagflation","credit crunch",
+    "bank failure","systemic risk","liquidity crisis","margin calls",
+    "fed raises","rate increase","quantitative tightening",
+
+    # ── Geopolitical negatives ─────────────────────────────────────────────
+    "war escalates","military strike","missile attack","nuclear threat",
+    "sanctions imposed","trade war","tariffs increased","embargo",
+    "invasion","terrorist attack","cyber attack","infrastructure attack",
+    "oil supply cut","opec cut","energy crisis","supply chain disruption",
+    "iran attack","north korea","russia escalates","china threatens",
+    "taiwan strait","south china sea","houthi attack","strait of hormuz",
+
+    # ── Trump / Political negatives ────────────────────────────────────────
+    "trump tariffs","trump imposes","trump threatens","trump sanctions",
+    "trump fires","trump bans","trump executive order","trump withdraws",
+    "government shutdown","debt ceiling","default risk","credit downgrade",
+    "impeachment","indictment","investigation launched","subpoena",
+    "election disputed","political crisis","congress blocks",
+
+    # ── Market structure negatives ─────────────────────────────────────────
+    "flash crash","circuit breaker","trading halted","market selloff",
+    "margin call","forced liquidation","deleveraging","fund collapse",
+    "contagion","bank run","credit downgrade","sovereign default",
 ]
 
 POS_KEYWORDS = [
+    # ── Company-specific positives ─────────────────────────────────────────
     "beat expectations","record revenue","upgrade","raised guidance","buyback",
     "dividend increase","fda approval","contract win","partnership","acquisition",
     "ai deal","data center","earnings beat","raised forecast","record profit",
+    "market share gain","new product launch","clinical trial success",
+    "patent approved","ipo debut","strategic alliance","merger approved",
+    "cost cutting","margin expansion","share repurchase","special dividend",
+
+    # ── Macro / Fed positives ──────────────────────────────────────────────
+    "rate cut","dovish","easing","inflation cools","cpi lower",
+    "soft landing","gdp beat","jobs strong","fed pauses","rate hold",
+    "quantitative easing","stimulus","fed pivot","lower rates",
+    "inflation falls","deflation","yield drops","bonds rally",
+
+    # ── Geopolitical positives ─────────────────────────────────────────────
+    "ceasefire","peace deal","trade deal","tariffs reduced","sanctions lifted",
+    "diplomatic breakthrough","nato unity","alliances strengthened",
+    "oil supply increase","opec increases","energy prices fall",
+    "supply chain normalizes","trade agreement signed","wto ruling",
+
+    # ── Trump / Political positives ────────────────────────────────────────
+    "trump deal","trump signs","trump approves","trump lifts","trump reduces",
+    "deregulation","tax cuts","infrastructure bill","trade surplus",
+    "trump tariff pause","tariff exemption","trade truce","china deal",
+    "bipartisan deal","budget passed","debt ceiling raised","stimulus approved",
+
+    # ── Market structure positives ─────────────────────────────────────────
+    "short squeeze","gamma squeeze","strong earnings season","buyback program",
+    "institutional buying","insider buying","record inflows","etf creation",
+    "index addition","s&p 500 addition","fund inflows","short covering",
 ]
+
+# ── Macro event keywords — these trigger immediate regime reassessment ─────────
+MACRO_TRIGGERS = {
+    # Trump actions — immediate market movers
+    "trump":        {"impact": "high",   "direction": "mixed",  "note": "Trump statement — check context"},
+    "tariff":       {"impact": "high",   "direction": "bearish","note": "Tariffs = inflation + trade war risk"},
+    "trade war":    {"impact": "high",   "direction": "bearish","note": "Trade war = risk off"},
+    "trump tweet":  {"impact": "high",   "direction": "mixed",  "note": "Trump social post — volatile"},
+    "truth social": {"impact": "medium", "direction": "mixed",  "note": "Trump platform statement"},
+
+    # Fed / rates
+    "federal reserve":   {"impact": "high",   "direction": "mixed",  "note": "Fed statement — major mover"},
+    "jerome powell":     {"impact": "high",   "direction": "mixed",  "note": "Fed chair speaking"},
+    "fomc":              {"impact": "high",   "direction": "mixed",  "note": "Fed meeting — sit out"},
+    "interest rate":     {"impact": "high",   "direction": "mixed",  "note": "Rate decision incoming"},
+    "rate cut":          {"impact": "high",   "direction": "bullish","note": "Rate cuts = risk on"},
+    "rate hike":         {"impact": "high",   "direction": "bearish","note": "Rate hikes = risk off"},
+    "inflation":         {"impact": "medium", "direction": "bearish","note": "Inflation = hawkish risk"},
+    "cpi":               {"impact": "high",   "direction": "mixed",  "note": "CPI print — major mover"},
+
+    # Geopolitical — Middle East
+    "iran":              {"impact": "high",   "direction": "bearish","note": "Iran = oil risk + geopolitical"},
+    "houthi":            {"impact": "medium", "direction": "bearish","note": "Red Sea = supply chain risk"},
+    "israel":            {"impact": "medium", "direction": "bearish","note": "Middle East tension"},
+    "oil":               {"impact": "high",   "direction": "mixed",  "note": "Oil price = inflation signal"},
+    "opec":              {"impact": "high",   "direction": "mixed",  "note": "OPEC decision = energy sector"},
+    "strait of hormuz":  {"impact": "high",   "direction": "bearish","note": "Chokepoint risk = oil spike"},
+
+    # Russia / Ukraine
+    "russia":            {"impact": "high",   "direction": "bearish","note": "Russia = energy + risk off"},
+    "ukraine":           {"impact": "medium", "direction": "bearish","note": "War escalation risk"},
+    "nato":              {"impact": "medium", "direction": "mixed",  "note": "NATO statement = geopolitical"},
+    "putin":             {"impact": "high",   "direction": "bearish","note": "Putin statement = risk off"},
+
+    # China / Taiwan
+    "china":             {"impact": "high",   "direction": "mixed",  "note": "China = trade + tech risk"},
+    "taiwan":            {"impact": "high",   "direction": "bearish","note": "Taiwan = chip supply chain"},
+    "xi jinping":        {"impact": "high",   "direction": "bearish","note": "Xi statement = China policy"},
+    "south china sea":   {"impact": "high",   "direction": "bearish","note": "Military tension"},
+    "semiconductor":     {"impact": "high",   "direction": "mixed",  "note": "Chip supply = tech sector"},
+    "nvidia ban":        {"impact": "high",   "direction": "bearish","note": "Export controls = tech hit"},
+
+    # North Korea
+    "north korea":       {"impact": "high",   "direction": "bearish","note": "NK = risk off spike"},
+    "missile test":      {"impact": "high",   "direction": "bearish","note": "Military provocation"},
+
+    # Market events
+    "flash crash":       {"impact": "high",   "direction": "bearish","note": "Emergency — reduce exposure"},
+    "circuit breaker":   {"impact": "high",   "direction": "bearish","note": "Market halt"},
+    "bank failure":      {"impact": "high",   "direction": "bearish","note": "Systemic risk"},
+    "default":           {"impact": "high",   "direction": "bearish","note": "Sovereign/corporate default"},
+
+    # Crypto — affects COIN, general sentiment
+    "bitcoin":           {"impact": "medium", "direction": "mixed",  "note": "Crypto sentiment signal"},
+    "crypto crash":      {"impact": "high",   "direction": "bearish","note": "Risk off signal"},
+    "sec crypto":        {"impact": "medium", "direction": "bearish","note": "Regulatory risk"},
+
+    # AI / Tech
+    "openai":            {"impact": "medium", "direction": "bullish","note": "AI news = tech sector boost"},
+    "ai breakthrough":   {"impact": "medium", "direction": "bullish","note": "AI = growth narrative"},
+    "chatgpt":           {"impact": "low",    "direction": "bullish","note": "AI sentiment"},
+    "deepseek":          {"impact": "medium", "direction": "bearish","note": "AI competition risk for NVDA"},
+}
+
 
 def score_headlines(headlines: list, symbol: str) -> dict:
     """
-    Score a list of headlines for a ticker.
-    Returns sentiment score (-100 to +100), flags, and key headlines.
-    Headline-sensitive tickers get amplified scoring.
+    Score headlines using three layers:
+    1. Company-specific positive/negative keywords
+    2. Macro trigger detection (Trump, Fed, geopolitical)
+    3. Amplification for headline-sensitive tickers
+
+    Returns score (-100 to +100), flags, macro triggers found, and key headlines.
     """
     if not headlines:
         return {"score": 0, "bullish": 0, "bearish": 0,
-                "has_negative": False, "has_positive": False, "key": []}
+                "has_negative": False, "has_positive": False,
+                "key": [], "macro_triggers": [], "macro_alert": False}
 
-    bullish = 0
-    bearish = 0
-    key     = []
+    bullish       = 0
+    bearish       = 0
+    key           = []
+    macro_found   = []
+    macro_alert   = False
 
     for h in headlines:
         h_low = h.lower()
+
+        # Layer 1: Company keywords
         pos = sum(1 for kw in POS_KEYWORDS if kw in h_low)
         neg = sum(1 for kw in NEG_KEYWORDS if kw in h_low)
         bullish += pos
@@ -317,18 +659,49 @@ def score_headlines(headlines: list, symbol: str) -> dict:
         if pos > 0 or neg > 0:
             key.append(f"{'+ ' if pos > neg else '- '}{h[:80]}")
 
-    # Amplify for headline-sensitive tickers
+        # Layer 2: Macro trigger detection
+        for trigger, meta in MACRO_TRIGGERS.items():
+            if trigger in h_low:
+                macro_found.append({
+                    "trigger":   trigger,
+                    "impact":    meta["impact"],
+                    "direction": meta["direction"],
+                    "note":      meta["note"],
+                    "headline":  h[:100],
+                })
+                if meta["impact"] == "high":
+                    macro_alert = True
+                # Apply directional scoring for macro triggers
+                if meta["direction"] == "bullish":
+                    bullish += 2 if meta["impact"] == "high" else 1
+                elif meta["direction"] == "bearish":
+                    bearish += 2 if meta["impact"] == "high" else 1
+                # Mixed impact = add to both (uncertainty)
+                elif meta["direction"] == "mixed":
+                    bullish += 1
+                    bearish += 1
+
+    # Layer 3: Amplify for headline-sensitive tickers
     amp = 1.5 if symbol in HEADLINE_SENSITIVE else 1.0
     score = round((bullish - bearish) * 20 * amp, 1)
     score = max(-100, min(100, score))
 
+    # Log macro alerts
+    if macro_found:
+        high_impact = [m for m in macro_found if m["impact"] == "high"]
+        if high_impact:
+            log(f"  🚨 MACRO TRIGGER on {symbol}: "
+                f"{', '.join(m['trigger'] for m in high_impact[:3])}")
+
     return {
-        "score":        score,
-        "bullish":      bullish,
-        "bearish":      bearish,
-        "has_negative": bearish > 0,
-        "has_positive": bullish > 0,
-        "key":          key[:3],
+        "score":          score,
+        "bullish":        bullish,
+        "bearish":        bearish,
+        "has_negative":   bearish > 0,
+        "has_positive":   bullish > 0,
+        "key":            key[:3],
+        "macro_triggers": macro_found[:5],
+        "macro_alert":    macro_alert,
     }
 
 
@@ -422,8 +795,8 @@ def get_market_session() -> str:
     return "closed"
 
 def fetch_price_data():
-    log(f"Fetching price data for {WATCHLIST}...")
-    for symbol in WATCHLIST:
+    log(f"Fetching price data for {len(get_watchlist())} tickers...")
+    for symbol in get_watchlist():
         try:
             tick  = yf.Ticker(symbol)
             hist  = tick.history(period="1y")
@@ -485,6 +858,13 @@ def fetch_price_data():
             t.has_negative_news  = has_neg
             t.headline_score     = headline_score
             t.headlines = headlines
+            # Store macro triggers for AI context and alerts
+            if articles_hs := score_headlines(headlines, symbol):
+                t.macro_triggers = articles_hs.get("macro_triggers", [])
+                t.macro_alert    = articles_hs.get("macro_alert", False)
+                if t.macro_alert:
+                    log(f"  🚨 MACRO ALERT on {symbol}: "
+                        f"{', '.join(m['trigger'] for m in t.macro_triggers if m['impact']=='high')[:3]}")
             tickers[symbol] = t
             trend = "↑" if price > sma_50 > sma_200 else "↓" if price < sma_50 else "→"
             earn  = " ⚠️EARN" if earnings_5d else ""
@@ -568,7 +948,7 @@ def fetch_macro():
     # Reddit sentiment (runs after price data is loaded)
     log("  Scanning Reddit sentiment...")
     try:
-        macro.reddit_mentions = fetch_reddit_mentions(WATCHLIST)
+        macro.reddit_mentions = fetch_reddit_mentions(get_watchlist())
     except Exception as e:
         log(f"  Reddit error: {e}", "WARN")
 
@@ -776,9 +1156,9 @@ def scan_short(symbol) -> dict | None:
 
 def scan_all() -> list:
     session = get_market_session()
-    log(f"Scanning {len(WATCHLIST)} tickers | {session} | Regime:{macro.market_regime} | VIX:{macro.vix:.1f}")
+    log(f"Scanning {len(get_watchlist())} tickers | {session} | Regime:{macro.market_regime} | VIX:{macro.vix:.1f}")
     signals = []
-    for sym in WATCHLIST:
+    for sym in get_watchlist():
         for fn in (scan_long, scan_short):
             s = fn(sym)
             if s:
@@ -1590,9 +1970,17 @@ def main():
     log(f"Paper mode: {PAPER_MODE} | Telegram: {'yes' if TELEGRAM_TOKEN else 'no'}")
     log("=" * 60)
 
+    # ── Load active watchlist ──────────────────────────────────────────────
+    load_active_watchlist()
+
     # Always fetch data first
     fetch_macro()
     fetch_price_data()
+
+    # ── Update dynamic watchlist at market open (9:30-10:00 AM) ──────────
+    if session in ("open", "pre_market") and now.hour == 9 and now.minute <= 45:
+        log("Market open — running dynamic watchlist update...")
+        update_dynamic_watchlist()
 
     # ── Dashboard generation ───────────────────────────────────────────────
     if mode == "dashboard":
@@ -1699,6 +2087,27 @@ def main():
         )
         return
 
+    # ── Macro alert broadcast ─────────────────────────────────────────────
+    # If high-impact triggers detected on any ticker, alert immediately
+    macro_alerts = [(sym, t) for sym, t in tickers.items() if t.macro_alert]
+    if macro_alerts:
+        alert_lines = []
+        for sym, t in macro_alerts[:5]:
+            high = [m for m in t.macro_triggers if m["impact"] == "high"]
+            for m in high[:2]:
+                alert_lines.append(
+                    f"*{m['trigger'].upper()}* on {sym}\n"
+                    f"_{m['note']}_\n"
+                    f"📰 {m['headline'][:80]}"
+                )
+        if alert_lines:
+            _tg(
+                f"🚨 *MACRO TRIGGER ALERT*\n\n"
+                + "\n\n".join(alert_lines) +
+                f"\n\nVIX: {macro.vix:.1f} | Regime: {macro.market_regime}\n"
+                f"Review positions and signals carefully."
+            )
+
     # ── Position monitor — always runs first ──────────────────────────────
     # Syncs from Alpaca, applies trailing stops, checks news, handles EOD close
     run_position_monitor()
@@ -1771,11 +2180,18 @@ def alert_signal(sig: dict):
     hl  = sig.get("headline_score", 0)
     hl_str = f"\nHeadlines: {hl:+.0f} ({'🟢 bullish' if hl > 20 else '🔴 bearish' if hl < -20 else '⚪ neutral'})" if hl != 0 else ""
     reddit_str = "\n🔥 Reddit trending" if sig.get("reddit_trending") else ""
+    # Macro trigger alert
+    macro_str = ""
+    t = tickers.get(sig["symbol"])
+    if t and hasattr(t, "macro_triggers") and t.macro_triggers:
+        high = [m for m in t.macro_triggers if m["impact"] == "high"]
+        if high:
+            macro_str = f"\n🚨 MACRO: {', '.join(m['trigger'].upper() for m in high[:3])}"
     _tg(
         f"*{d} SIGNAL — {sig['symbol']}*\n"
         f"Entry: ${sig['entry']:.2f}  Stop: ${sig['stop']:.2f}  Target: ${sig['target']:.2f}\n"
         f"R/R: {sig['rr']:.2f}  Criteria: {sig['criteria']:.0f}/100"
-        f"{hl_str}{reddit_str}{ai}\n"
+        f"{hl_str}{reddit_str}{macro_str}{ai}\n"
         f"VIX: {macro.vix:.1f} ({macro.vix_regime})  Regime: {macro.market_regime}"
     )
 
@@ -1840,7 +2256,7 @@ def send_startup_ping():
         f"🤖 *Boticus started [{mode}]*\n"
         f"Session: {get_market_session()}  |  "
         f"VIX: {macro.vix:.1f}  |  Regime: {macro.market_regime}\n"
-        f"Watchlist: {len(WATCHLIST)} tickers"
+        f"Watchlist: {len(get_watchlist())} tickers"
         f"{dash}"
     )
 
@@ -1859,7 +2275,7 @@ def run_backtest(symbols: list = None, lookback_days: int = 180,
 
     Returns a dict with win rates, avg R/R, best/worst setups, and regime breakdown.
     """
-    symbols = symbols or WATCHLIST
+    symbols = symbols or get_watchlist()
     log(f"Running backtest: {len(symbols)} symbols, {lookback_days} days lookback")
 
     results   = []
@@ -2267,6 +2683,7 @@ def commit_state_to_github():
         "backtest_latest.json",
         "auto_adjust_latest.json",
         "bot.log",
+        "watchlist.json",
     ]
 
     committed = 0
@@ -2352,6 +2769,7 @@ trades   = load("trades.json")   or []
 feedback = load("feedback.json") or []
 bt       = load("backtest_latest.json")
 adj      = load("auto_adjust_latest.json")
+wl_data  = load("watchlist.json")
 
 open_t    = [t for t in trades   if t.get("status") == "open"]
 today_str = date.today().isoformat()
@@ -2377,7 +2795,7 @@ r3a.metric("Avg Win",        f"{avg_win:+.1f}%")
 r3b.metric("Avg Loss",       f"{avg_loss:+.1f}%")
 st.divider()
 
-tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs(["📊 Positions","📈 P&L","🔬 Quality","📉 Backtest","🔧 Adjust","📋 Log"])
+tab1,tab2,tab3,tab4,tab5,tab6,tab7 = st.tabs(["📊 Positions","📈 P&L","🔬 Quality","📉 Backtest","🔧 Adjust","📋 Log","📋 Watchlist"])
 
 with tab1:
     if open_t:
@@ -2517,10 +2935,32 @@ with tab6:
             elif "Trailing"in line: colored.append(f"📌 {line}")
             elif "EOD"     in line: colored.append(f"🔔 {line}")
             elif "Time exit"in line:colored.append(f"⏰ {line}")
+            elif "MACRO"   in line: colored.append(f"🚨 {line}")
             else:                   colored.append(f"   {line}")
         st.code("\\n".join(colored), language="text")
     else:
         st.info("No log file yet")
+
+with tab7:
+    st.subheader("Active Watchlist")
+    if wl_data:
+        core   = wl_data.get("core", [])
+        active = wl_data.get("active", [])
+        dynamic = [t for t in active if t not in core]
+        updated = wl_data.get("updated_at", "")[:16].replace("T", " ")
+        st.caption(f"Last updated: {updated}")
+        ca, cb = st.columns(2)
+        ca.metric("Total Tickers",   len(active))
+        cb.metric("Dynamic Tickers", len(dynamic))
+        st.write("**Core (always on):**")
+        st.write(", ".join(core))
+        if dynamic:
+            st.write("**Dynamic (today's movers):**")
+            st.write(", ".join(dynamic))
+        else:
+            st.info("No dynamic tickers added yet — runs at market open")
+    else:
+        st.info("Watchlist data not available yet")
 '''
 
 
