@@ -81,8 +81,9 @@ SECTOR_MAP = {
 }
 
 # ── Risk config ────────────────────────────────────────────────────────────────
-# Updated per backtest results (23% WR → target 38%+):
-# RSI min 60→65, volume 2x, take_profit 2.0x, dead money 2h, max hold 4h
+# DATA COLLECTION MODE — generating trade data for pattern learning
+# Target: 30-50 closed trades then run auto_adjust for data-driven tightening
+# Current: RSI 52+, vol 1.3x, ranging allowed — enough to trade most days
 RISK = {
     "stop_loss_atr_mult":    1.5,
     "take_profit_atr_mult":  2.0,
@@ -90,12 +91,12 @@ RISK = {
     "max_risk_per_trade_pct":0.02,
     "max_daily_loss_pct":    0.02,
     "max_open_positions":    6,
-    "rsi_min":               65,    # was 60 — only confirmed strong momentum
+    "rsi_min":               52,    # loosened — catch more setups for data
     "rsi_max":               72,
-    "volume_min_mult":       2.0,
+    "volume_min_mult":       1.3,   # loosened — still above average
     "atr_pct_max":           0.04,
-    "dead_money_hours":      2,     # was 4 — close flat positions faster
-    "max_hold_hours":        4,     # was 8 — cut losers sooner
+    "dead_money_hours":      4,     # give trades time to develop
+    "max_hold_hours":        6,     # allow intraday plays to play out
 }
 
 # ── State files (persisted via GitHub Actions cache) ──────────────────────────
@@ -670,14 +671,14 @@ def scan_long(symbol) -> dict | None:
     atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
     # Macro — tightened
     mac_score = (100 if m.market_regime == "trending_up" else
-                 40  if m.market_regime == "ranging" else   # exclude_ranging — heavy penalty
+                 65  if m.market_regime == "ranging" else
                  40  if m.market_regime == "volatile" else 15)
     if m.vix_regime == "fear":      mac_score -= 35
     elif m.vix_regime == "elevated": mac_score -= 20
     if m.yield_curve < -0.5:         mac_score -= 10
     if mac_score < 30: return None
-    # Only trade longs in confirmed uptrend — backtest shows 37% WR vs 16-25% elsewhere
-    if m.market_regime != "trending_up": return None
+    # DATA COLLECTION MODE: allow ranging — need data across all regimes
+    # Once 50+ trades logged, tighten back to trending_up only
     # Headline + sentiment adjustments
     hl_score = max(0, min(100, 50 + t.headline_score / 2))
     reddit = m.reddit_mentions.get(symbol, {})
