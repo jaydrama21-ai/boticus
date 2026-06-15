@@ -1330,7 +1330,99 @@ def eod_close_all():
     log(f"EOD close complete: {closed}/{len(positions)} closed")
 
 
-def run_position_monitor():
+def check_time_based_exits():
+    """
+    Close positions that have been open too long without moving.
+    Rules:
+    - If open > 4 hours and unrealized P&L between -0.5% and +0.5% → dead money, close it
+    - If open > 8 hours regardless of P&L → force close before EOD
+    - If open > 2 hours and down more than 1.5% but above stop → tighten stop to current - 0.5%
+    """
+    trades = load_trades()
+    now    = datetime.now(ET)
+    updated = False
+
+    for trade in trades:
+        if trade.get("status") != "open":
+            continue
+
+        opened_at = trade.get("opened_at", "")
+        if not opened_at:
+            continue
+
+        try:
+            open_time = datetime.fromisoformat(opened_at).astimezone(ET)
+        except:
+            continue
+
+        hours_open  = (now - open_time).total_seconds() / 3600
+        unreal_pct  = trade.get("unrealized_pct", 0)
+        sym         = trade["symbol"]
+        direction   = trade.get("direction", "long")
+        qty         = trade.get("shares", 1)
+        close_side  = "sell" if direction == "long" else "buy"
+
+        # Rule 1: Dead money — open > 4 hours, barely moved
+        if hours_open >= 4 and -0.5 <= unreal_pct <= 0.5:
+            log(f"  Time exit (dead money): {sym} open {hours_open:.1f}h, "
+                f"P&L {unreal_pct:+.1f}% — closing", "WARN")
+            success = close_position_market(sym, qty, close_side,
+                                            f"Dead money exit after {hours_open:.1f}h")
+            if success:
+                trade["status"]       = "closed"
+                trade["close_reason"] = f"TIME_EXIT_DEAD ({hours_open:.1f}h)"
+                trade["closed_at"]    = now.isoformat()
+                log_trade_outcome(trade)
+                _tg(
+                    f"⏰ *Time Exit — {sym}*\n"
+                    f"Open {hours_open:.1f}h with no movement ({unreal_pct:+.1f}%)\n"
+                    f"Freed slot for better opportunity."
+                )
+                updated = True
+
+        # Rule 2: Force close if open > 8 hours (avoid overnight)
+        elif hours_open >= 8:
+            log(f"  Time exit (8h max): {sym} open {hours_open:.1f}h — force closing", "WARN")
+            success = close_position_market(sym, qty, close_side,
+                                            f"8-hour max hold exceeded")
+            if success:
+                trade["status"]       = "closed"
+                trade["close_reason"] = f"TIME_EXIT_8H ({unreal_pct:+.1f}%)"
+                trade["closed_at"]    = now.isoformat()
+                log_trade_outcome(trade)
+                _tg(
+                    f"⏰ *8-Hour Exit — {sym}*\n"
+                    f"P&L: {unreal_pct:+.1f}% | Open {hours_open:.1f}h\n"
+                    f"Maximum hold time reached."
+                )
+                updated = True
+
+        # Rule 3: Tighten stop if down > 1.5% after 2 hours (weak setup)
+        elif hours_open >= 2 and unreal_pct < -1.5:
+            current_stop = trade.get("stop_loss", 0)
+            current_price = trade.get("current_price", 0)
+            if current_price and current_stop:
+                if direction == "long":
+                    new_stop = max(current_stop, round(current_price * 0.995, 2))
+                else:
+                    new_stop = min(current_stop, round(current_price * 1.005, 2))
+                improved = (direction == "long"  and new_stop > current_stop) or \
+                           (direction == "short" and new_stop < current_stop)
+                if improved:
+                    log(f"  Tightening stop: {sym} down {unreal_pct:+.1f}% "
+                        f"after {hours_open:.1f}h → ${new_stop:.2f}")
+                    trade["stop_loss"]  = new_stop
+                    trade["trail_reason"] = f"Tightened after {hours_open:.1f}h weak"
+                    order_id = trade.get("order_id","")
+                    if order_id:
+                        update_stop_loss(sym, order_id, new_stop)
+                    updated = True
+
+    if updated:
+        save_trades(trades)
+
+
+
     """
     Master position monitor — runs every cycle.
     Calls all four monitoring functions in the right order.
@@ -1347,14 +1439,58 @@ def run_position_monitor():
 
     log(f"Monitoring {open_count} open position(s)")
 
-    # 2. Refresh prices for open positions only (fast)
+    # 2. Refresh prices for open positions using Alpaca real-time quotes
     open_syms = [p.get("symbol") for p in alpaca_positions]
-    for sym in open_syms:
+    if open_syms:
         try:
-            data = yf.Ticker(sym).history(period="1d")
-            if not data.empty and sym in tickers:
-                tickers[sym].price = float(data["Close"].iloc[-1])
-                # Quick headline refresh for news emergency check
+            # Use Alpaca latest quotes endpoint — real-time, not delayed
+            syms_str = ",".join(open_syms)
+            r = requests.get(
+                f"{ALPACA_DATA}/v2/stocks/quotes/latest",
+                headers={"APCA-API-KEY-ID": ALPACA_KEY,
+                         "APCA-API-SECRET-KEY": ALPACA_SECRET},
+                params={"symbols": syms_str, "feed": "iex"},
+                timeout=8
+            )
+            if r.ok:
+                quotes = r.json().get("quotes", {})
+                for sym, q in quotes.items():
+                    if sym in tickers:
+                        # Use ask price as proxy for current price (most current)
+                        ask = float(q.get("ap", 0))
+                        bid = float(q.get("bp", 0))
+                        if ask > 0 and bid > 0:
+                            tickers[sym].price = round((ask + bid) / 2, 2)
+                        log(f"  Real-time quote {sym}: ${tickers[sym].price:.2f}")
+            else:
+                # Fallback to Alpaca snapshot
+                r2 = requests.get(
+                    f"{ALPACA_DATA}/v2/stocks/snapshots",
+                    headers={"APCA-API-KEY-ID": ALPACA_KEY,
+                             "APCA-API-SECRET-KEY": ALPACA_SECRET},
+                    params={"symbols": syms_str, "feed": "iex"},
+                    timeout=8
+                )
+                if r2.ok:
+                    snaps = r2.ok and r2.json()
+                    for sym, snap in snaps.items():
+                        if sym in tickers:
+                            minute_bar = snap.get("minuteBar", {})
+                            price = float(minute_bar.get("c", 0))
+                            if price > 0:
+                                tickers[sym].price = price
+        except Exception as e:
+            log(f"  Real-time price refresh error: {e} — falling back to yfinance", "WARN")
+            for sym in open_syms:
+                try:
+                    data = yf.Ticker(sym).history(period="1d")
+                    if not data.empty and sym in tickers:
+                        tickers[sym].price = float(data["Close"].iloc[-1])
+                except: pass
+
+        # Quick headline refresh for open positions (last 2 hours)
+        for sym in open_syms:
+            try:
                 since = (datetime.now(ET) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
                 r = requests.get(
                     f"{ALPACA_DATA}/v1beta1/news",
@@ -1363,21 +1499,23 @@ def run_position_monitor():
                     params={"symbols": sym, "start": since, "limit": 5},
                     timeout=6
                 )
-                if r.ok:
+                if r.ok and sym in tickers:
                     articles = r.json().get("news", [])
                     headlines = [a["headline"] for a in articles[:5]]
-                    tickers[sym].headlines    = headlines
+                    tickers[sym].headlines     = headlines
                     tickers[sym].headline_score = score_headlines(headlines, sym)["score"]
-        except Exception as e:
-            log(f"  Price refresh {sym}: {e}", "WARN")
+            except: pass
 
     # 3. Apply trailing stops
     apply_trailing_stops()
 
-    # 4. Check for news emergencies
+    # 4. Time-based exits — dead money, 8h max, tighten weak positions
+    check_time_based_exits()
+
+    # 5. Check for news emergencies
     check_news_emergency_exit()
 
-    # 5. EOD close check
+    # 6. EOD close check
     eod_close_all()
 
     log("── Monitor complete ───────────────────────────────────────\n")
@@ -2177,271 +2315,276 @@ def commit_state_to_github():
 
 DASHBOARD_CODE = '''
 import streamlit as st
-import json, os, requests
+import json, os, re
 from pathlib import Path
 from datetime import datetime, date
+import pandas as pd
 
-st.set_page_config(
-    page_title="Boticus",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+st.set_page_config(page_title="Boticus", page_icon="🤖", layout="wide")
 
-# ── Data loading — reads from bot_state/ folder in repo ──────────────────────
 DATA_DIR = Path("bot_state")
 
-def load(filename):
-    p = DATA_DIR / filename
-    if p.exists():
-        try:
-            return json.loads(p.read_text())
-        except:
-            pass
-    return None
+def load(f):
+    p = DATA_DIR / f
+    return json.loads(p.read_text()) if p.exists() else None
 
-def load_log(lines=60):
-    p = DATA_DIR / "bot.log"
-    if p.exists():
-        try:
-            return p.read_text().strip().split("\\n")[-lines:]
-        except:
-            pass
-    return []
+st.markdown("<script>setTimeout(()=>window.location.reload(),300000)</script>", unsafe_allow_html=True)
 
-# ── Auto-refresh every 5 minutes ─────────────────────────────────────────────
-st.markdown(
-    "<script>setTimeout(()=>window.location.reload(), 300000)</script>",
-    unsafe_allow_html=True
-)
-
-# ── Load all data ─────────────────────────────────────────────────────────────
 trades   = load("trades.json")   or []
 feedback = load("feedback.json") or []
 bt       = load("backtest_latest.json")
 adj      = load("auto_adjust_latest.json")
 
-open_t    = [t for t in trades if t.get("status") == "open"]
-closed_t  = [t for t in trades if t.get("status") == "closed"]
+open_t    = [t for t in trades   if t.get("status") == "open"]
 today_str = date.today().isoformat()
-today_t   = [t for t in trades if t.get("opened_at", "")[:10] == today_str]
 wins      = [t for t in feedback if t.get("result") == "win"]
 losses    = [t for t in feedback if t.get("result") == "loss"]
 total_pnl = sum(t.get("pnl_dollar", 0) for t in feedback)
-today_pnl = sum(t.get("pnl_dollar", 0) for t in feedback
-                if t.get("date", "") == today_str)
-wr        = len(wins) / len(feedback) * 100 if feedback else 0
+today_pnl = sum(t.get("pnl_dollar", 0) for t in feedback if t.get("date","") == today_str)
+wr        = len(wins)/len(feedback)*100 if feedback else 0
+avg_win   = sum(t.get("pnl_pct",0) for t in wins)  /len(wins)   if wins   else 0
+avg_loss  = sum(t.get("pnl_pct",0) for t in losses)/len(losses)  if losses else 0
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("🤖 Boticus")
-st.caption(f"Last data refresh: {datetime.now().strftime('%b %d %H:%M ET')} · Auto-refreshes every 5 min")
+st.caption(f"Refreshes every 5 min · Last load: {datetime.now().strftime('%b %d %H:%M ET')}")
 
-# ── Top metrics ───────────────────────────────────────────────────────────────
-c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Open Positions",  len(open_t),  delta=None)
-c2.metric("Total Trades",    len(feedback))
-c3.metric("Win Rate",        f"{wr:.1f}%",
-          delta=f"{wr-50:.1f}% vs 50%", delta_color="normal")
-c4.metric("Total P&L",       f"${total_pnl:+,.2f}",
-          delta_color="normal")
-c5.metric("Today P&L",       f"${today_pnl:+,.2f}",
-          delta_color="normal")
-c6.metric("Today Trades",    len(today_t))
+c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
+c1.metric("Open",         len(open_t))
+c2.metric("Total Trades", len(feedback))
+c3.metric("Win Rate",     f"{wr:.1f}%",      delta=f"{wr-50:.1f}% vs 50%")
+c4.metric("Total P&L",    f"${total_pnl:+,.0f}")
+c5.metric("Today P&L",    f"${today_pnl:+,.0f}")
+c6.metric("Avg Win",      f"{avg_win:+.1f}%")
+c7.metric("Avg Loss",     f"{avg_loss:+.1f}%")
 
 st.divider()
 
-# ── Open positions ────────────────────────────────────────────────────────────
-col_left, col_right = st.columns([3, 2])
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📊 Positions", "📈 P&L", "🔬 Signal Quality", "📉 Backtest", "🔧 Auto-Adjust", "📋 Log"
+])
 
-with col_left:
-    st.subheader("📊 Open Positions")
+# ── Tab 1: Positions ──────────────────────────────────────────────────────────
+with tab1:
+    st.subheader("Open Positions")
     if open_t:
-        import pandas as pd
         rows = []
         for t in open_t:
+            curr = t.get("current_price", t.get("entry_price", 0))
+            entry = t.get("entry_price", 0)
+            direction = t.get("direction","long")
+            unreal_pct = t.get("unrealized_pct", 0)
+            trail = "✅" if t.get("trailing_stop") else ""
             rows.append({
-                "Symbol":    t.get("symbol", ""),
-                "Direction": t.get("direction", "").upper(),
-                "Entry":     f"${t.get('entry_price', 0):.2f}",
-                "Stop":      f"${t.get('stop_loss', 0):.2f}",
-                "Target":    f"${t.get('take_profit', 0):.2f}",
-                "Shares":    t.get("shares", 0),
-                "Risk $":    f"${t.get('risk_amount', 0):.0f}",
-                "AI Score":  t.get("ai_score", "—"),
-                "Opened":    t.get("opened_at", "")[:16].replace("T", " "),
+                "Symbol":    t.get("symbol",""),
+                "Dir":       t.get("direction","").upper(),
+                "Entry":     f"${entry:.2f}",
+                "Current":   f"${curr:.2f}",
+                "Unreal P&L":f"{unreal_pct:+.1f}%",
+                "Stop":      f"${t.get('stop_loss',0):.2f}",
+                "Target":    f"${t.get('take_profit',0):.2f}",
+                "Shares":    t.get("shares",0),
+                "Risk $":    f"${t.get('risk_amount',0):.0f}",
+                "AI":        t.get("ai_score","—"),
+                "Trail":     trail,
+                "Opened":    t.get("opened_at","")[:16].replace("T"," "),
             })
-        df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
-        st.info("No open positions right now")
+        st.info("No open positions")
 
-# ── Today's activity ──────────────────────────────────────────────────────────
-with col_right:
-    st.subheader("📅 Today's Activity")
-    today_fb = [t for t in feedback if t.get("date", "") == today_str]
+    st.subheader("Today's Closed Trades")
+    today_fb = [t for t in feedback if t.get("date","") == today_str]
     if today_fb:
         for t in today_fb:
-            pnl  = t.get("pnl_pct", 0)
+            pnl = t.get("pnl_pct",0)
             icon = "🟢" if pnl > 0 else "🔴"
             st.write(f"{icon} **{t['symbol']}** {t.get('direction','').upper()} "
-                     f"| {pnl:+.1f}% | {t.get('close_reason','—')}")
+                     f"| {pnl:+.1f}% | {t.get('close_reason','—')} "
+                     f"| AI: {t.get('ai_score','—')}")
     else:
         st.info("No completed trades today")
 
-st.divider()
-
-# ── P&L curve ─────────────────────────────────────────────────────────────────
-if feedback:
-    st.subheader("📈 Cumulative P&L")
-    import pandas as pd
-    df = pd.DataFrame(feedback)
-    if "date" in df.columns and "pnl_dollar" in df.columns:
+# ── Tab 2: P&L ────────────────────────────────────────────────────────────────
+with tab2:
+    if feedback:
+        df = pd.DataFrame(feedback)
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date")
         df["cum_pnl"] = df["pnl_dollar"].cumsum()
-        df["win"]     = df["result"] == "win"
+        df["win"] = df["result"] == "win"
 
-        tab1, tab2, tab3 = st.tabs(["P&L Curve", "Trade History", "By Regime"])
+        st.subheader("Cumulative P&L")
+        st.line_chart(df.set_index("date")["cum_pnl"], use_container_width=True, height=280)
 
-        with tab1:
-            st.line_chart(df.set_index("date")["cum_pnl"],
-                         use_container_width=True, height=300)
+        st.subheader("All Trades")
+        disp = df[["date","symbol","direction","entry","exit","pnl_pct","pnl_dollar","close_reason","regime","ai_score","vix"]].copy()
+        disp = disp.sort_values("date", ascending=False)
+        disp.columns = ["Date","Symbol","Dir","Entry","Exit","P&L %","P&L $","Reason","Regime","AI","VIX"]
+        disp["P&L %"] = disp["P&L %"].map(lambda x: f"{x:+.2f}%")
+        disp["P&L $"] = disp["P&L $"].map(lambda x: f"${x:+.2f}")
+        st.dataframe(disp.head(100), use_container_width=True, hide_index=True)
 
-        with tab2:
-            display = df[["date","symbol","direction","entry","exit",
-                          "pnl_pct","pnl_dollar","close_reason","regime","ai_score"]].copy()
-            display = display.sort_values("date", ascending=False)
-            display.columns = ["Date","Symbol","Dir","Entry","Exit",
-                               "P&L %","P&L $","Reason","Regime","AI Score"]
-            display["P&L %"] = display["P&L %"].map(lambda x: f"{x:+.2f}%")
-            display["P&L $"] = display["P&L $"].map(lambda x: f"${x:+.2f}")
-            st.dataframe(display.head(50), use_container_width=True, hide_index=True)
+        st.subheader("Win Rate by Regime")
+        if "regime" in df.columns:
+            rg = df.groupby("regime").agg(
+                trades=("win","count"), wins=("win","sum"),
+                total_pnl=("pnl_dollar","sum")
+            ).reset_index()
+            rg["win_rate"] = (rg["wins"]/rg["trades"]*100).round(1)
+            rg["avg_pnl"]  = (rg["total_pnl"]/rg["trades"]).round(2)
+            st.dataframe(rg, use_container_width=True, hide_index=True)
+    else:
+        st.info("No closed trades yet — keep the bot running")
 
-        with tab3:
-            if "regime" in df.columns:
-                regime_stats = df.groupby("regime").agg(
-                    trades=("win","count"),
-                    wins=("win","sum"),
-                    total_pnl=("pnl_dollar","sum"),
+# ── Tab 3: Signal Quality ─────────────────────────────────────────────────────
+with tab3:
+    if len(feedback) >= 5:
+        df = pd.DataFrame(feedback)
+        df["win"] = df["result"] == "win"
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.write("**Win Rate by AI Score**")
+            if "ai_score" in df.columns:
+                df2 = df.copy()
+                df2["ai_bucket"] = pd.cut(df2["ai_score"].fillna(0),
+                    bins=[0,60,70,80,100], labels=["55-60","60-70","70-80","80+"])
+                ab = df2.groupby("ai_bucket", observed=True).apply(
+                    lambda x: round(sum(x["result"]=="win")/len(x)*100,1) if len(x)>0 else 0
                 ).reset_index()
-                regime_stats["win_rate"] = (regime_stats["wins"] / regime_stats["trades"] * 100).round(1)
-                regime_stats["avg_pnl"]  = (regime_stats["total_pnl"] / regime_stats["trades"]).round(2)
-                st.dataframe(regime_stats, use_container_width=True, hide_index=True)
+                ab.columns = ["AI Score","Win Rate %"]
+                st.dataframe(ab, use_container_width=True, hide_index=True)
 
-st.divider()
+            st.write("**Win Rate by VIX**")
+            if "vix" in df.columns:
+                df2 = df.copy()
+                df2["vix_b"] = pd.cut(df2["vix"].fillna(20),
+                    bins=[0,15,25,35,100], labels=["<15 low","15-25 normal","25-35 elevated",">35 fear"])
+                vb = df2.groupby("vix_b", observed=True).apply(
+                    lambda x: round(sum(x["result"]=="win")/len(x)*100,1) if len(x)>0 else 0
+                ).reset_index()
+                vb.columns = ["VIX Range","Win Rate %"]
+                st.dataframe(vb, use_container_width=True, hide_index=True)
 
-# ── Signal quality analysis ───────────────────────────────────────────────────
-if len(feedback) >= 5:
-    st.subheader("🔬 Signal Quality Analysis")
-    import pandas as pd
-    df = pd.DataFrame(feedback)
+        with col_b:
+            st.write("**Exit Type Breakdown**")
+            if "close_reason" in df.columns:
+                stops    = sum(1 for t in feedback if "STOP"      in t.get("close_reason",""))
+                targets  = sum(1 for t in feedback if "TARGET"    in t.get("close_reason",""))
+                eod      = sum(1 for t in feedback if "EOD"       in t.get("close_reason",""))
+                emerg    = sum(1 for t in feedback if "EMERGENCY" in t.get("close_reason",""))
+                trail    = sum(1 for t in feedback if "TRAIL"     in t.get("close_reason",""))
+                others   = len(feedback) - stops - targets - eod - emerg - trail
+                ex = pd.DataFrame({
+                    "Exit Type":["Target Hit","Stop Hit","EOD Close","Emergency","Trailing","Other"],
+                    "Count":    [targets,stops,eod,emerg,trail,others],
+                    "Pct":      [f"{x/len(feedback)*100:.1f}%" for x in [targets,stops,eod,emerg,trail,others]],
+                })
+                st.dataframe(ex, use_container_width=True, hide_index=True)
 
-    col_a, col_b, col_c = st.columns(3)
-
-    with col_a:
-        st.write("**Win Rate by AI Score**")
-        if "ai_score" in df.columns:
-            df["ai_bucket"] = pd.cut(df["ai_score"].fillna(0),
-                                     bins=[0,60,70,80,100],
-                                     labels=["55-60","60-70","70-80","80+"])
-            ab = df.groupby("ai_bucket", observed=True).apply(
-                lambda x: round(sum(x["result"]=="win")/len(x)*100, 1)
-            ).reset_index()
-            ab.columns = ["AI Score Range", "Win Rate %"]
-            st.dataframe(ab, use_container_width=True, hide_index=True)
-
-    with col_b:
-        st.write("**Win Rate by VIX**")
-        if "vix" in df.columns:
-            df["vix_bucket"] = pd.cut(df["vix"].fillna(20),
-                                      bins=[0,15,25,35,100],
-                                      labels=["<15 (low)","15-25 (normal)","25-35 (elevated)",">35 (fear)"])
-            vb = df.groupby("vix_bucket", observed=True).apply(
-                lambda x: round(sum(x["result"]=="win")/len(x)*100, 1)
-            ).reset_index()
-            vb.columns = ["VIX Range", "Win Rate %"]
-            st.dataframe(vb, use_container_width=True, hide_index=True)
-
-    with col_c:
-        st.write("**Stop vs Target Hits**")
-        if "close_reason" in df.columns:
-            stops   = sum(1 for t in feedback if "STOP"   in t.get("close_reason",""))
-            targets = sum(1 for t in feedback if "TARGET" in t.get("close_reason",""))
-            timeouts = len(feedback) - stops - targets
-            summary = pd.DataFrame({
-                "Outcome": ["Target Hit", "Stop Hit", "Timeout/Other"],
-                "Count":   [targets, stops, timeouts],
-                "Pct":     [f"{x/len(feedback)*100:.1f}%" for x in [targets, stops, timeouts]],
+            st.write("**Direction Performance**")
+            long_t  = [t for t in feedback if t.get("direction")=="long"]
+            short_t = [t for t in feedback if t.get("direction")=="short"]
+            lwr = sum(1 for t in long_t  if t["result"]=="win")/len(long_t) *100 if long_t  else 0
+            swr = sum(1 for t in short_t if t["result"]=="win")/len(short_t)*100 if short_t else 0
+            dp = pd.DataFrame({
+                "Direction":["Long","Short"],
+                "Trades":   [len(long_t),len(short_t)],
+                "Win Rate": [f"{lwr:.1f}%",f"{swr:.1f}%"],
+                "Avg P&L":  [
+                    f"{sum(t.get('pnl_pct',0) for t in long_t)/len(long_t):+.1f}%" if long_t else "—",
+                    f"{sum(t.get('pnl_pct',0) for t in short_t)/len(short_t):+.1f}%" if short_t else "—",
+                ]
             })
-            st.dataframe(summary, use_container_width=True, hide_index=True)
+            st.dataframe(dp, use_container_width=True, hide_index=True)
+    else:
+        st.info(f"Need at least 5 closed trades for analysis. Have {len(feedback)} so far.")
 
-st.divider()
+# ── Tab 4: Backtest ───────────────────────────────────────────────────────────
+with tab4:
+    if bt:
+        b1,b2,b3,b4,b5,b6 = st.columns(6)
+        b1.metric("Signals",    bt.get("total_signals",0))
+        b2.metric("Win Rate",   f"{bt.get('win_rate',0):.1f}%")
+        b3.metric("Expectancy", f"{bt.get('expectancy_pct',0):+.2f}%")
+        b4.metric("Avg Win",    f"{bt.get('avg_win_pct',0):+.2f}%")
+        b5.metric("Avg Loss",   f"{bt.get('avg_loss_pct',0):+.2f}%")
+        b6.metric("Period",     f"{bt.get('period_days',0)}d")
 
-# ── Backtest results ──────────────────────────────────────────────────────────
-if bt:
-    st.subheader("📉 Backtest Results")
-    b1, b2, b3, b4, b5, b6 = st.columns(6)
-    b1.metric("Signals",       bt.get("total_signals", 0))
-    b2.metric("Win Rate",      f"{bt.get('win_rate',0):.1f}%")
-    b3.metric("Expectancy",    f"{bt.get('expectancy_pct',0):+.2f}%")
-    b4.metric("Avg Win",       f"{bt.get('avg_win_pct',0):+.2f}%")
-    b5.metric("Avg Loss",      f"{bt.get('avg_loss_pct',0):+.2f}%")
-    b6.metric("Period",        f"{bt.get('period_days',0)}d")
+        col_l, col_r = st.columns(2)
+        with col_l:
+            st.metric("Long Win Rate",  f"{bt.get('long_win_rate',0):.1f}%",
+                     delta=f"{bt.get('long_signals',0)} signals")
+        with col_r:
+            st.metric("Short Win Rate", f"{bt.get('short_win_rate',0):.1f}%",
+                     delta=f"{bt.get('short_signals',0)} signals")
 
-    bl, br = st.columns(2)
-    with bl:
-        st.write("**Long signals**")
-        st.metric("Count",    bt.get("long_signals",0))
-        st.metric("Win Rate", f"{bt.get('long_win_rate',0):.1f}%")
-    with br:
-        st.write("**Short signals**")
-        st.metric("Count",    bt.get("short_signals",0))
-        st.metric("Win Rate", f"{bt.get('short_win_rate',0):.1f}%")
+        col1, col2 = st.columns(2)
+        with col1:
+            if bt.get("rsi_win_rates"):
+                st.write("**RSI bucket performance**")
+                rsi_df = pd.DataFrame([{"RSI Range":k,"Win Rate":f"{v:.1f}%"}
+                                        for k,v in bt["rsi_win_rates"].items()])
+                st.dataframe(rsi_df, use_container_width=True, hide_index=True)
+        with col2:
+            if bt.get("volume_win_rates"):
+                st.write("**Volume bucket performance**")
+                vol_df = pd.DataFrame([{"Volume":k,"Win Rate":f"{v:.1f}%"}
+                                        for k,v in bt["volume_win_rates"].items()])
+                st.dataframe(vol_df, use_container_width=True, hide_index=True)
 
-    if bt.get("rsi_win_rates"):
-        st.write("**RSI bucket performance:**")
-        import pandas as pd
-        rsi_df = pd.DataFrame([
-            {"RSI Range": k, "Win Rate": f"{v:.1f}%"}
-            for k, v in bt["rsi_win_rates"].items()
-        ])
-        st.dataframe(rsi_df, use_container_width=True, hide_index=True)
+        if bt.get("regime_stats"):
+            st.write("**By market regime**")
+            rg = []
+            for regime, stats in bt["regime_stats"].items():
+                tot = stats["wins"]+stats["losses"]
+                if tot:
+                    rg.append({"Regime":regime,"Trades":tot,
+                               "Win Rate":f"{stats['wins']/tot*100:.1f}%",
+                               "Wins":stats["wins"],"Losses":stats["losses"]})
+            if rg:
+                st.dataframe(pd.DataFrame(rg), use_container_width=True, hide_index=True)
+    else:
+        st.info("No backtest data yet. Run: Actions → Trading Bot → backtest mode")
 
-# ── Auto-adjust recommendations ───────────────────────────────────────────────
-if adj:
-    st.divider()
-    st.subheader("🔧 Auto-Adjust Recommendations")
-    st.info(f"**Summary:** {adj.get('summary','')}")
-    col1, col2 = st.columns(2)
-    col1.write(f"**Priority change:** {adj.get('priority_change','')}")
-    col2.write(f"**Confidence:** {adj.get('confidence','').upper()}")
-    if adj.get("adjustments"):
-        import pandas as pd
-        adj_df = pd.DataFrame([
-            {"Parameter": a["param"],
-             "Current":   a["current"],
-             "Suggested": a["suggested"],
-             "Reason":    a["reason"]}
-            for a in adj["adjustments"]
-        ])
-        st.dataframe(adj_df, use_container_width=True, hide_index=True)
-    st.warning("Apply changes by editing the RISK dict in bot.py and pushing to GitHub.")
+# ── Tab 5: Auto-Adjust ────────────────────────────────────────────────────────
+with tab5:
+    if adj:
+        st.info(f"**Summary:** {adj.get('summary','')}")
+        c1, c2 = st.columns(2)
+        c1.write(f"**Priority:** {adj.get('priority_change','')}")
+        c2.write(f"**Confidence:** {adj.get('confidence','').upper()}")
+        if adj.get("adjustments"):
+            adj_df = pd.DataFrame([{
+                "Parameter": a["param"],
+                "Current":   a["current"],
+                "Suggested": a["suggested"],
+                "Reason":    a["reason"]
+            } for a in adj["adjustments"]])
+            st.dataframe(adj_df, use_container_width=True, hide_index=True)
+        st.warning("To apply: edit RISK dict in bot.py and push to GitHub.")
+    else:
+        st.info("No auto-adjust data yet. Run: Actions → Trading Bot → auto_adjust mode")
 
-# ── Live log ──────────────────────────────────────────────────────────────────
-st.divider()
-with st.expander("📋 Latest Bot Log (last 60 lines)", expanded=False):
+# ── Tab 6: Log ────────────────────────────────────────────────────────────────
+with tab6:
     log_path = DATA_DIR / "bot.log"
     if log_path.exists():
-        log_lines = log_path.read_text().strip().split("\\n")[-60:]
-        # Color code by level
+        lines = log_path.read_text().strip().split("\n")[-80:]
         colored = []
-        for line in log_lines:
-            if "ERROR" in line:   colored.append(f"🔴 {line}")
-            elif "WARN"  in line: colored.append(f"🟡 {line}")
-            elif "APPROVED" in line: colored.append(f"✅ {line}")
-            elif "REJECTED" in line: colored.append(f"❌ {line}")
-            else:                 colored.append(f"   {line}")
-        st.code("\\n".join(colored), language="text")
+        for line in lines:
+            if "ERROR"    in line: colored.append(f"🔴 {line}")
+            elif "WARN"   in line: colored.append(f"🟡 {line}")
+            elif "APPROVED"  in line: colored.append(f"✅ {line}")
+            elif "REJECTED"  in line: colored.append(f"❌ {line}")
+            elif "CLOSED"    in line: colored.append(f"💰 {line}")
+            elif "EMERGENCY" in line: colored.append(f"🚨 {line}")
+            elif "Trailing"  in line: colored.append(f"📌 {line}")
+            elif "EOD"       in line: colored.append(f"🔔 {line}")
+            else:                     colored.append(f"   {line}")
+        st.code("\n".join(colored), language="text")
     else:
         st.info("No log file yet")
 '''
