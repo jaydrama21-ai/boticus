@@ -2,8 +2,16 @@ name: Trading Bot
 
 on:
   schedule:
+    # Every 10 min market hours Mon-Fri (covers EST and EDT)
     - cron: '*/10 13-21 * * 1-5'
+    # Extra runs at 3:50 and 3:55 PM ET for EOD close window (19:50/19:55 UTC summer)
+    - cron: '50 19 * * 1-5'
+    - cron: '55 19 * * 1-5'
+    - cron: '50 20 * * 1-5'
+    - cron: '55 20 * * 1-5'
+    # Post-close review 4:30 PM ET
     - cron: '30 20,21 * * 1-5'
+    # Sunday backtest + auto-adjust 8 AM ET
     - cron: '0 12,13 * * 0'
 
   workflow_dispatch:
@@ -61,6 +69,7 @@ jobs:
           DASHBOARD_URL:       ${{ secrets.DASHBOARD_URL }}
           GITHUB_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY:   ${{ github.repository }}
+          EOD_CLOSE:           true
           STATE_DIR:           bot_state
           RUN_MODE:            ${{ github.event.inputs.mode || 'scan' }}
           BACKTEST_DAYS:       ${{ github.event.inputs.backtest_days || '180' }}
