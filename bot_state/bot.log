@@ -1261,3 +1261,257 @@ Suggested adjustments:
 [22:20:47] INFO    SHA check auto_adjust_latest.json: 404
 [22:20:48] INFO    Commit auto_adjust_latest.json: 201
 [22:20:48] INFO    ✅ Committed auto_adjust_latest.json to repo
+[22:20:48] INFO    SHA check bot.log: 404
+[22:20:49] INFO    Commit bot.log: 201
+[22:20:49] INFO    ✅ Committed bot.log to repo
+[22:20:49] INFO  State commit complete: 4/5 files
+[22:34:28] INFO  ============================================================
+[22:34:28] INFO  TRADING BOT RUN | 2026-06-14 22:34 ET | closed | mode=dashboard
+[22:34:28] INFO  Paper mode: True | Telegram: yes
+[22:34:28] INFO  ============================================================
+[22:34:28] INFO  Fetching macro data...
+[22:34:30] INFO    Futures: ES=+1.10% NQ=+1.79% Gold=+3.24% → MILDLY-RISK-ON
+[22:34:30] INFO    Fed:3.63% CPI:4.3% VIX:17.7(normal) Regime:ranging
+[22:34:30] INFO    Scanning Reddit sentiment...
+[22:34:32] INFO  Fetching price data for ['SPY', 'QQQ', 'IWM', 'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'META', 'AMZN', 'TSLA', 'AMD', 'PLTR', 'COIN', 'JPM', 'BAC', 'GS', 'XOM', 'CVX', 'UNH', 'LLY', 'XLK', 'XLF', 'XLE', 'XLV', 'TLT', 'GLD']...
+[22:34:33] INFO    SPY    $ 741.75 (+0.5%)  RSI: 53.0  ATR:1.29%  Vol:1.1x  ↑
+[22:34:33] INFO    QQQ    $ 721.34 (+0.6%)  RSI: 55.2  ATR:2.09%  Vol:1.1x  ↑
+[22:34:34] INFO    IWM    $ 292.95 (+0.9%)  RSI: 59.8  ATR:2.09%  Vol:1.2x  ↑
+[22:34:34] INFO    AAPL   $ 291.13 (-1.5%)  RSI: 44.1  ATR:2.51%  Vol:0.8x  ↑
+[22:34:35] INFO    MSFT   $ 390.74 (+0.1%)  RSI: 37.2  ATR:3.11%  Vol:0.9x  ↓
+[22:34:35] INFO    NVDA   $ 205.19 (+0.2%)  RSI: 45.4  ATR:3.91%  Vol:0.6x  ↓
+[22:34:35] INFO    GOOGL  $ 359.68 (+0.5%)  RSI: 42.5  ATR:2.96%  Vol:0.8x  ↓
+[22:34:36] INFO    META   $ 566.98 (-0.3%)  RSI: 34.7  ATR:3.28%  Vol:0.8x  ↓
+[22:34:36] INFO    AMZN   $ 238.55 (-1.2%)  RSI: 34.8  ATR:3.13%  Vol:1.2x  ↓
+[22:34:36] INFO    TSLA   $ 406.43 (+1.8%)  RSI: 48.9  ATR:4.45%  Vol:1.3x  →
+[22:34:37] INFO    AMD    $ 511.57 (+4.7%)  RSI: 60.5  ATR:6.33%  Vol:1.0x  ↑
+[22:34:37] INFO    PLTR   $ 127.99 (-2.4%)  RSI: 39.3  ATR:5.12%  Vol:0.9x  ↓
+[22:34:37] INFO    COIN   $ 159.78 (-0.4%)  RSI: 40.3  ATR:7.28%  Vol:0.7x  ↓
+[22:34:38] INFO    JPM    $ 320.72 (+2.3%)  RSI: 65.0  ATR:1.99%  Vol:0.8x  ↑
+[22:34:38] INFO    BAC    $  56.02 (+1.6%)  RSI: 73.5  ATR:2.00%  Vol:0.8x  ↑
+[22:34:38] INFO    GS     $1062.75 (+2.6%)  RSI: 61.6  ATR:3.18%  Vol:1.0x  ↑
+[22:34:39] INFO    XOM    $ 147.01 (+0.3%)  RSI: 43.7  ATR:2.78%  Vol:1.0x  ↓
+[22:34:39] INFO    CVX    $ 187.22 (+0.8%)  RSI: 49.5  ATR:2.38%  Vol:0.9x  ↓
+[22:34:40] INFO    UNH    $ 408.52 (+0.7%)  RSI: 68.0  ATR:2.32%  Vol:1.0x  ↑
+[22:34:40] INFO    LLY    $1133.00 (-2.4%)  RSI: 62.8  ATR:3.28%  Vol:0.8x  ↑
+[22:34:41] INFO    XLK    $ 184.80 (+0.9%)  RSI: 55.8  ATR:3.04%  Vol:1.0x  ↑
+[22:34:41] INFO    XLF    $  53.34 (+1.4%)  RSI: 65.0  ATR:1.32%  Vol:1.3x  →
+[22:34:41] INFO    XLE    $  57.55 (+0.8%)  RSI: 48.0  ATR:2.41%  Vol:0.8x  ↓
+[22:34:42] INFO    XLV    $ 153.81 (-0.2%)  RSI: 62.2  ATR:1.48%  Vol:0.8x  →
+[22:34:43] INFO    TLT    $  85.77 (-0.2%)  RSI: 56.2  ATR:0.76%  Vol:0.8x  →
+[22:34:43] INFO    GLD    $ 386.54 (+0.1%)  RSI: 35.1  ATR:2.25%  Vol:1.0x  ↓
+[22:34:43] INFO  Dashboard written to dashboard.py
+[22:34:44] WARN  dashboard.py commit failed: 400 {"message":"Bad Request","errors":"The version you specified in the \"X-GitHub-API-Version\" request header, \"2026-11-28\", is not a supported versio
+[22:34:44] INFO  Telegram response: 200 — {"ok":true,"result":{"message_id":30,"from":{"id":8425149242,"is_bot":true,"first_name":"BotikusAlerts","username":"Botikus_alerts_bot"},"chat":{"id":
+[09:47:16] INFO  ============================================================
+[09:47:16] INFO  TRADING BOT RUN | 2026-06-15 09:47 ET | open | mode=backtest
+[09:47:16] INFO  Paper mode: True | Telegram: yes
+[09:47:16] INFO  ============================================================
+[09:47:16] INFO  Fetching macro data...
+[09:47:18] INFO    Futures: ES=+0.00% NQ=+0.00% Gold=+0.00% → NEUTRAL
+[09:47:18] INFO    Fed:3.63% CPI:4.3% VIX:16.1(normal) Regime:ranging
+[09:47:18] INFO    Scanning Reddit sentiment...
+[09:47:20] INFO  Fetching price data for ['SPY', 'QQQ', 'IWM', 'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'META', 'AMZN', 'TSLA', 'AMD', 'PLTR', 'COIN', 'JPM', 'BAC', 'GS', 'XOM', 'CVX', 'UNH', 'LLY', 'XLK', 'XLF', 'XLE', 'XLV', 'TLT', 'GLD']...
+[09:47:20] INFO    SPY    $ 753.38 (+1.6%)  RSI: 59.7  ATR:1.29%  Vol:0.1x  ↑ 🔴NEG
+[09:47:21] INFO    QQQ    $ 740.96 (+2.7%)  RSI: 61.7  ATR:2.08%  Vol:0.1x  ↑
+[09:47:22] INFO    IWM    $ 296.74 (+1.3%)  RSI: 62.9  ATR:2.03%  Vol:0.1x  ↑
+[09:47:22] INFO    AAPL   $ 295.20 (+1.4%)  RSI: 48.3  ATR:2.42%  Vol:0.1x  ↑
+[09:47:23] INFO    MSFT   $ 396.23 (+1.4%)  RSI: 40.7  ATR:2.98%  Vol:0.1x  ↓
+[09:47:23] INFO    NVDA   $ 209.41 (+2.1%)  RSI: 49.0  ATR:3.76%  Vol:0.1x  ↑
+[09:47:24] INFO    GOOGL  $ 367.04 (+2.0%)  RSI: 48.3  ATR:2.94%  Vol:0.1x  ↑
+[09:47:24] INFO    META   $ 587.57 (+3.6%)  RSI: 44.1  ATR:3.23%  Vol:0.2x  ↓
+[09:47:25] INFO    AMZN   $ 247.10 (+3.6%)  RSI: 44.3  ATR:3.06%  Vol:0.2x  ↓
+[09:47:25] INFO    TSLA   $ 413.18 (+1.7%)  RSI: 51.2  ATR:4.23%  Vol:0.1x  →
+[09:47:26] INFO    AMD    $ 556.68 (+8.8%)  RSI: 66.3  ATR:5.99%  Vol:0.2x  ↑
+[09:47:26] INFO    PLTR   $ 130.73 (+2.1%)  RSI: 42.6  ATR:4.87%  Vol:0.2x  ↓
+[09:47:26] INFO    COIN   $ 170.44 (+6.7%)  RSI: 47.1  ATR:6.85%  Vol:0.2x  ↓
+[09:47:27] INFO    JPM    $ 321.92 (+0.4%)  RSI: 65.9  ATR:1.96%  Vol:0.1x  ↑
+[09:47:28] INFO    BAC    $  56.10 (+0.2%)  RSI: 73.8  ATR:1.95%  Vol:0.1x  ↑
+[09:47:28] INFO    GS     $1081.56 (+1.8%)  RSI: 64.1  ATR:3.11%  Vol:0.2x  ↑
+[09:47:29] INFO    XOM    $ 140.18 (-4.6%)  RSI: 35.3  ATR:3.18%  Vol:0.2x  ↓
+[09:47:29] INFO    CVX    $ 180.36 (-3.7%)  RSI: 40.4  ATR:2.67%  Vol:0.1x  ↓
+[09:47:30] INFO    UNH    $ 403.70 (-1.2%)  RSI: 63.1  ATR:2.33%  Vol:0.1x  ↑
+[09:47:30] INFO    LLY    $1114.02 (-1.7%)  RSI: 58.3  ATR:3.24%  Vol:0.1x  ↑
+[09:47:31] INFO    XLK    $ 191.16 (+3.4%)  RSI: 61.2  ATR:2.97%  Vol:0.1x  ↑
+[09:47:32] INFO    XLF    $  53.81 (+0.9%)  RSI: 68.0  ATR:1.29%  Vol:0.1x  →
+[09:47:32] INFO    XLE    $  55.63 (-3.3%)  RSI: 40.3  ATR:2.64%  Vol:0.3x  ↓
+[09:47:33] INFO    XLV    $ 152.44 (-0.9%)  RSI: 57.5  ATR:1.49%  Vol:0.1x  →
+[09:47:34] INFO    TLT    $  85.99 (+0.3%)  RSI: 58.0  ATR:0.72%  Vol:0.1x  →
+[09:47:35] INFO    GLD    $ 400.16 (+3.5%)  RSI: 45.4  ATR:2.28%  Vol:0.2x  ↓
+[09:47:35] INFO  Running backtest: 26 symbols, 180 days lookback
+[09:47:35] INFO    Backtesting SPY (390 days)...
+[09:47:35] INFO      SPY: 66 signals | W:25 L:30 | WR:38%
+[09:47:35] INFO    Backtesting QQQ (390 days)...
+[09:47:35] INFO      QQQ: 61 signals | W:28 L:32 | WR:46%
+[09:47:35] INFO    Backtesting IWM (390 days)...
+[09:47:35] INFO      IWM: 66 signals | W:18 L:28 | WR:27%
+[09:47:35] INFO    Backtesting AAPL (390 days)...
+[09:47:35] INFO      AAPL: 76 signals | W:17 L:34 | WR:22%
+[09:47:36] INFO    Backtesting MSFT (390 days)...
+[09:47:36] INFO      MSFT: 61 signals | W:22 L:19 | WR:36%
+[09:47:36] INFO    Backtesting NVDA (390 days)...
+[09:47:36] INFO      NVDA: 38 signals | W:19 L:14 | WR:50%
+[09:47:36] INFO    Backtesting GOOGL (390 days)...
+[09:47:36] INFO      GOOGL: 96 signals | W:30 L:33 | WR:31%
+[09:47:36] INFO    Backtesting META (390 days)...
+[09:47:36] INFO      META: 72 signals | W:18 L:23 | WR:25%
+[09:47:36] INFO    Backtesting AMZN (390 days)...
+[09:47:36] INFO      AMZN: 62 signals | W:5 L:40 | WR:8%
+[09:47:36] INFO    Backtesting TSLA (390 days)...
+[09:47:37] INFO      TSLA: 23 signals | W:3 L:15 | WR:13%
+[09:47:37] INFO    Backtesting AMD (390 days)...
+[09:47:37] INFO      AMD: 12 signals | W:2 L:10 | WR:17%
+[09:47:37] INFO    Backtesting PLTR (390 days)...
+[09:47:37] INFO      PLTR: 11 signals | W:1 L:7 | WR:9%
+[09:47:37] INFO    Backtesting COIN (390 days)...
+[09:47:37] INFO      COIN: 2 signals | W:0 L:2 | WR:0%
+[09:47:37] INFO    Backtesting JPM (390 days)...
+[09:47:37] INFO      JPM: 30 signals | W:0 L:25 | WR:0%
+[09:47:37] INFO    Backtesting BAC (390 days)...
+[09:47:38] INFO      BAC: 42 signals | W:3 L:17 | WR:7%
+[09:47:38] INFO    Backtesting GS (390 days)...
+[09:47:38] INFO      GS: 67 signals | W:25 L:15 | WR:37%
+[09:47:38] INFO    Backtesting XOM (390 days)...
+[09:47:38] INFO      XOM: 67 signals | W:23 L:27 | WR:34%
+[09:47:38] INFO    Backtesting CVX (390 days)...
+[09:47:38] INFO      CVX: 60 signals | W:32 L:15 | WR:53%
+[09:47:38] INFO    Backtesting UNH (390 days)...
+[09:47:38] INFO      UNH: 97 signals | W:13 L:49 | WR:13%
+[09:47:39] INFO    Backtesting LLY (390 days)...
+[09:47:39] INFO      LLY: 58 signals | W:17 L:24 | WR:29%
+[09:47:39] INFO    Backtesting XLK (390 days)...
+[09:47:39] INFO      XLK: 64 signals | W:28 L:35 | WR:44%
+[09:47:39] INFO    Backtesting XLF (390 days)...
+[09:47:39] INFO      XLF: 35 signals | W:4 L:17 | WR:11%
+[09:47:39] INFO    Backtesting XLE (390 days)...
+[09:47:39] INFO      XLE: 65 signals | W:30 L:24 | WR:46%
+[09:47:39] INFO    Backtesting XLV (390 days)...
+[09:47:39] INFO      XLV: 42 signals | W:15 L:17 | WR:36%
+[09:47:40] INFO    Backtesting TLT (390 days)...
+[09:47:40] INFO      TLT: 42 signals | W:13 L:19 | WR:31%
+[09:47:40] INFO    Backtesting GLD (390 days)...
+[09:47:40] INFO      GLD: 60 signals | W:28 L:27 | WR:47%
+[09:47:40] INFO  ============================================================
+[09:47:40] INFO  BACKTEST RESULTS — 180 days | 1375 signals
+[09:47:40] INFO  ============================================================
+[09:47:40] INFO  Win rate:    30.5%  (419W / 598L / 358 timeout)
+[09:47:40] INFO  Avg win:     +4.08%   Avg loss:  -3.18%
+[09:47:40] INFO  Expectancy:  -0.96% per trade
+[09:47:40] INFO  Long:  790 signals | 37.0% WR
+[09:47:40] INFO  Short: 585 signals | 21.7% WR
+[09:47:40] INFO  
+By regime:
+[09:47:40] INFO    trending_up     33.9% WR (1056 trades)
+[09:47:40] INFO    trending_down   19.7% WR (269 trades)
+[09:47:40] INFO    ranging         16.0% WR (50 trades)
+[09:47:40] INFO  
+RSI buckets:
+[09:47:40] INFO    RSI 40-50: 23.9% WR
+[09:47:40] INFO    RSI 50-60: 5.9% WR
+[09:47:40] INFO    RSI 60-72: 36.9% WR
+[09:47:40] INFO  
+Volume buckets:
+[09:47:40] INFO    Vol <1.1x: 30.8% WR
+[09:47:40] INFO    Vol 1.1-2x: 29.7% WR
+[09:47:40] INFO    Vol >2x: 30.0% WR
+[09:47:40] INFO  ============================================================
+[09:47:40] INFO  Backtest saved to bot_state/backtest_latest.json
+[09:47:40] INFO  Telegram response: 400 — {"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 194"}
+[09:47:40] INFO  Running auto-adjust analysis...
+[09:47:54] INFO  ============================================================
+[09:47:54] INFO  AUTO-ADJUST RECOMMENDATIONS (confidence: high)
+[09:47:54] INFO  ============================================================
+[09:47:54] INFO  Summary: Strategy shows strongly asymmetric performance with longs significantly outperforming shorts (37% vs 22% WR). Negative expectancy of -0.96% is primarily driven by poor short performance and ranging market trades. Focus on long-only trades in trending markets while relaxing volume requirements to increase signal count without degrading quality.
+[09:47:54] INFO  Priority change: Switch to long_only direction filter - this single change eliminates the 21.7% WR short trades and retains 37% WR longs, likely flipping expectancy positive immediately
+[09:47:54] INFO  
+Suggested adjustments:
+[09:47:54] INFO    rsi_min                        60 → 40
+[09:47:54] INFO      Reason: RSI 40-50 shows 23.9% WR but RSI 60-72 shows 36.9% WR. However, expanding to capture the 40-60 range may add volume while maintaining selectivity at entry
+[09:47:54] INFO    rsi_max                        72 → 72
+[09:47:54] INFO      Reason: Keep current - RSI 60-72 is the best performing segment at 36.9% WR
+[09:47:54] INFO    volume_min                     2.0 → 1.1
+[09:47:54] INFO      Reason: Volume >2x shows 30.0% WR vs 1.1-2x at 29.7% - virtually identical performance. Lowering threshold increases signal count without degrading win rate
+[09:47:54] INFO    target_atr_mult                2.0 → 2.5
+[09:47:54] INFO      Reason: Avg win +4.08% vs avg loss -3.18% suggests winners can run further. With 1.28 win/loss ratio, extending targets may capture more upside on winning trades
+[09:47:54] INFO    direction_filter               both → long_only
+[09:47:54] INFO      Reason: Long WR 37.0% vs Short WR 21.7% - eliminating shorts would dramatically improve overall win rate and expectancy
+[09:47:54] INFO    regime_filter                  none → exclude_ranging
+[09:47:54] INFO      Reason: Trending_up 34% and trending_down 20% both exceed ranging at 16%. Filtering out ranging markets could improve expectancy significantly
+[09:47:54] INFO  ============================================================
+[09:47:54] INFO  NOTE: These are suggestions only. Edit RISK dict in bot.py to apply.
+[09:47:54] INFO  Telegram response: 400 — {"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 750"}
+[12:11:32] INFO  ============================================================
+[12:11:32] INFO  TRADING BOT RUN | 2026-06-15 12:11 ET | open | mode=scan
+[12:11:32] INFO  Paper mode: True | Telegram: yes
+[12:11:32] INFO  ============================================================
+[12:11:32] INFO  Fetching macro data...
+[12:11:33] INFO    Futures: ES=+0.00% NQ=+0.00% Gold=+0.00% → NEUTRAL
+[12:11:33] INFO    Fed:3.63% CPI:4.3% VIX:16.3(normal) Regime:ranging
+[12:11:33] INFO    Scanning Reddit sentiment...
+[12:11:35] INFO  Fetching price data for ['SPY', 'QQQ', 'IWM', 'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'META', 'AMZN', 'TSLA', 'AMD', 'PLTR', 'COIN', 'JPM', 'BAC', 'GS', 'XOM', 'CVX', 'UNH', 'LLY', 'XLK', 'XLF', 'XLE', 'XLV', 'TLT', 'GLD']...
+[12:11:36] INFO    SPY    $ 756.31 (+2.0%)  RSI: 61.1  ATR:1.32%  Vol:0.3x  ↑ 🔴NEG
+[12:11:36] INFO    QQQ    $ 744.19 (+3.2%)  RSI: 62.6  ATR:2.11%  Vol:0.5x  ↑
+[12:11:37] INFO    IWM    $ 295.99 (+1.0%)  RSI: 62.4  ATR:2.04%  Vol:0.5x  ↑
+[12:11:37] INFO    AAPL   $ 297.21 (+2.1%)  RSI: 50.2  ATR:2.45%  Vol:0.3x  ↑
+[12:11:38] INFO    MSFT   $ 400.84 (+2.6%)  RSI: 43.4  ATR:3.01%  Vol:0.4x  ↓
+[12:11:38] INFO    NVDA   $ 212.43 (+3.5%)  RSI: 51.4  ATR:3.76%  Vol:0.4x  ↑
+[12:11:38] INFO    GOOGL  $ 372.39 (+3.5%)  RSI: 51.9  ATR:2.91%  Vol:0.4x  ↑
+[12:11:39] INFO    META   $ 599.91 (+5.8%)  RSI: 48.5  ATR:3.27%  Vol:0.5x  ↓
+[12:11:39] INFO    AMZN   $ 246.07 (+3.2%)  RSI: 43.3  ATR:3.08%  Vol:0.5x  ↓
+[12:11:40] INFO    TSLA   $ 409.60 (+0.8%)  RSI: 50.0  ATR:4.27%  Vol:0.5x  →
+[12:11:40] INFO    AMD    $ 547.44 (+7.0%)  RSI: 65.3  ATR:6.11%  Vol:0.5x  ↑
+[12:11:40] INFO    PLTR   $ 134.58 (+5.1%)  RSI: 46.6  ATR:4.89%  Vol:0.6x  ↓
+[12:11:41] INFO    COIN   $ 173.77 (+8.8%)  RSI: 48.9  ATR:6.81%  Vol:0.6x  ↓
+[12:11:41] INFO    JPM    $ 322.02 (+0.4%)  RSI: 65.9  ATR:1.96%  Vol:0.3x  ↑
+[12:11:42] INFO    BAC    $  56.43 (+0.7%)  RSI: 74.9  ATR:1.94%  Vol:0.3x  ↑
+[12:11:42] INFO    GS     $1086.81 (+2.3%)  RSI: 64.7  ATR:3.09%  Vol:0.4x  ↑
+[12:11:43] INFO    XOM    $ 140.63 (-4.3%)  RSI: 35.8  ATR:3.17%  Vol:0.7x  ↓
+[12:11:43] INFO    CVX    $ 179.94 (-3.9%)  RSI: 40.0  ATR:2.67%  Vol:0.5x  ↓
+[12:11:44] INFO    UNH    $ 412.02 (+0.9%)  RSI: 69.6  ATR:2.35%  Vol:0.4x  ↑
+[12:11:44] INFO    LLY    $1129.92 (-0.3%)  RSI: 62.0  ATR:3.21%  Vol:0.4x  ↑
+[12:11:45] INFO    XLK    $ 191.78 (+3.8%)  RSI: 61.7  ATR:2.99%  Vol:0.4x  ↑
+[12:11:45] INFO    XLF    $  53.96 (+1.2%)  RSI: 68.8  ATR:1.29%  Vol:0.5x  →
+[12:11:46] INFO    XLE    $  55.63 (-3.3%)  RSI: 40.3  ATR:2.64%  Vol:0.7x  ↓
+[12:11:47] INFO    XLV    $ 153.28 (-0.3%)  RSI: 60.3  ATR:1.48%  Vol:0.4x  →
+[12:11:47] INFO    TLT    $  85.85 (+0.1%)  RSI: 56.9  ATR:0.73%  Vol:0.3x  →
+[12:11:48] INFO    GLD    $ 399.28 (+3.3%)  RSI: 44.8  ATR:2.28%  Vol:0.8x  ↓
+[12:11:48] INFO  Account equity: $931,795.97 | Buying power: $3,727,183.88
+[12:11:48] INFO  
+── Position Monitor ──────────────────────────────────────
+[12:11:48] INFO  Syncing positions from Alpaca...
+[12:11:49] INFO    Synced: AAPL closed by Alpaca P&L: -1.4%
+[12:11:49] INFO  Trade outcome logged: AAPL ALPACA_CLOSED (stop or target hit) -1.4%
+[12:11:49] INFO  Telegram response: 400 — {"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 36"}
+[12:11:50] INFO    Synced: QQQ closed by Alpaca P&L: +3.9%
+[12:11:50] INFO  Trade outcome logged: QQQ ALPACA_CLOSED (stop or target hit) +3.9%
+[12:11:50] INFO  Telegram response: 400 — {"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 34"}
+[12:11:50] INFO    Synced: SPY closed by Alpaca P&L: +2.3%
+[12:11:50] INFO  Trade outcome logged: SPY ALPACA_CLOSED (stop or target hit) +2.3%
+[12:11:51] INFO  Telegram response: 400 — {"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 34"}
+[12:11:51] INFO    Synced: MSFT closed by Alpaca P&L: +0.4%
+[12:11:51] INFO  Trade outcome logged: MSFT ALPACA_CLOSED (stop or target hit) +0.4%
+[12:11:51] INFO  Telegram response: 400 — {"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 35"}
+[12:11:52] INFO    Synced: IWM closed by Alpaca P&L: +1.9%
+[12:11:52] INFO  Trade outcome logged: IWM ALPACA_CLOSED (stop or target hit) +1.9%
+[12:11:52] INFO  Telegram response: 400 — {"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 34"}
+[12:11:52] INFO    Synced: XLK closed by Alpaca P&L: +4.6%
+[12:11:52] INFO  Trade outcome logged: XLK ALPACA_CLOSED (stop or target hit) +4.6%
+[12:11:53] INFO  Telegram response: 400 — {"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 34"}
+[12:11:53] INFO  Position sync complete
+[12:11:53] INFO  No open positions — monitor complete
+[12:11:53] INFO  Open positions: 0/6
+[12:11:53] INFO  Scanning 26 tickers | open | Regime:ranging | VIX:16.3
+[12:11:53] INFO  Scan complete: 0 signal(s)
+[12:11:53] INFO  No signals this run — exiting
+[12:11:53] INFO    SHA check trades.json: 200
+[12:11:54] INFO    Commit trades.json: 200
+[12:11:54] INFO    ✅ Committed trades.json to repo
+[12:11:55] INFO    SHA check feedback.json: 404
+[12:11:56] INFO    Commit feedback.json: 201
+[12:11:56] INFO    ✅ Committed feedback.json to repo
+[12:11:56] INFO    SHA check backtest_latest.json: 200
+[12:11:57] INFO    Commit backtest_latest.json: 200
+[12:11:57] INFO    ✅ Committed backtest_latest.json to repo
+[12:11:58] INFO    SHA check auto_adjust_latest.json: 200
+[12:11:59] INFO    Commit auto_adjust_latest.json: 200
+[12:11:59] INFO    ✅ Committed auto_adjust_latest.json to repo
