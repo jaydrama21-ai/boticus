@@ -81,16 +81,18 @@ SECTOR_MAP = {
 }
 
 # ── Risk config ────────────────────────────────────────────────────────────────
+# Updated per auto-adjust recommendations (high confidence):
+# rsi_min 40→60, volume_min 1.1→2.0, take_profit_atr_mult 2.5→2.0
 RISK = {
     "stop_loss_atr_mult":    1.5,
-    "take_profit_atr_mult":  2.5,
+    "take_profit_atr_mult":  2.0,   # was 2.5 — take profits faster
     "max_position_pct":      0.05,
     "max_risk_per_trade_pct":0.02,
     "max_daily_loss_pct":    0.02,
     "max_open_positions":    6,
-    "rsi_min":               40,
+    "rsi_min":               60,    # was 40 — only trade confirmed momentum
     "rsi_max":               72,
-    "volume_min_mult":       1.1,
+    "volume_min_mult":       2.0,   # was 1.1 — only trade genuine volume surges
     "atr_pct_max":           0.04,
 }
 
@@ -666,12 +668,14 @@ def scan_long(symbol) -> dict | None:
     atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
     # Macro — tightened
     mac_score = (100 if m.market_regime == "trending_up" else
-                 75  if m.market_regime == "ranging" else
+                 40  if m.market_regime == "ranging" else   # exclude_ranging — heavy penalty
                  40  if m.market_regime == "volatile" else 15)
     if m.vix_regime == "fear":      mac_score -= 35
     elif m.vix_regime == "elevated": mac_score -= 20
     if m.yield_curve < -0.5:         mac_score -= 10
     if mac_score < 30: return None
+    # Exclude ranging markets per auto-adjust — not enough directional edge
+    if m.market_regime == "ranging": return None
     # Headline + sentiment adjustments
     hl_score = max(0, min(100, 50 + t.headline_score / 2))
     reddit = m.reddit_mentions.get(symbol, {})
@@ -714,6 +718,21 @@ def scan_short(symbol) -> dict | None:
     m = macro
     if t.earnings_within_5d: return None
     if m.fomc_24h or m.cpi_24h or m.jobs_24h: return None
+
+    # ── Regime gate — shorts only when macro supports them ─────────────────
+    # Bull market or ranging = no shorts (longs have the edge, don't fight it)
+    # Only activate shorts in confirmed downtrend or volatile/fear regimes
+    if m.market_regime in ("trending_up", "ranging"):
+        return None
+    if m.market_regime == "unknown":
+        return None
+    # Require at least mildly risk-off futures for shorts
+    if macro.risk_score > -1:
+        return None
+    # VIX must be at least elevated for short setups to have edge
+    if m.vix_regime == "low":
+        return None
+
     if macro.risk_score >= 2: return None  # RISK-ON — no shorts
     confirmed_down = t.price < t.sma_50 < t.sma_200
     overbought_rev = t.rsi_14 > 72 and t.price > t.sma_50
@@ -939,6 +958,429 @@ def check_daily_loss(equity: float) -> bool:
                     if t.get("status") == "closed"
                     and t.get("closed_at", "")[:10] == today]
     if not today_closed: return False
+    day_pnl  = sum(t.get("pnl", 0) for t in today_closed)
+    loss_pct = day_pnl / equity if equity else 0
+    if loss_pct <= -RISK["max_daily_loss_pct"]:
+        log(f"KILL SWITCH: {loss_pct:.2%} daily loss (${day_pnl:.2f})", "WARN")
+        return True
+    return False
+# Runs on every 10-min cycle but does 4 critical jobs:
+# 1. Trailing stops   — moves stop up as price rises to lock in profits
+# 2. News emergency   — closes position if major negative headline hits
+# 3. EOD close        — closes all positions before 3:55 PM ET
+# 4. Sync from Alpaca — reads actual Alpaca positions as source of truth
+# ══════════════════════════════════════════════════════════════════════════════
+
+def close_position_market(symbol: str, qty: int, side: str, reason: str) -> bool:
+    """Send a market close order to Alpaca."""
+    try:
+        r = requests.post(
+            f"{ALPACA_BASE}/v2/orders",
+            headers=ALPACA_HEADERS,
+            json={
+                "symbol":        symbol,
+                "qty":           str(abs(qty)),
+                "side":          side,
+                "type":          "market",
+                "time_in_force": "day",
+            },
+            timeout=10
+        )
+        if r.status_code in (200, 201):
+            log(f"  ✅ CLOSED {symbol} ×{qty} — {reason}")
+            return True
+        else:
+            log(f"  ❌ Close failed {symbol}: {r.status_code} {r.text[:100]}", "ERROR")
+    except Exception as e:
+        log(f"  ❌ Close error {symbol}: {e}", "ERROR")
+    return False
+
+
+def update_stop_loss(symbol: str, order_id: str, new_stop: float) -> bool:
+    """Update the stop loss on an existing Alpaca bracket order."""
+    try:
+        # Cancel existing order and replace with updated stop
+        r = requests.patch(
+            f"{ALPACA_BASE}/v2/orders/{order_id}",
+            headers=ALPACA_HEADERS,
+            json={"stop_price": str(round(new_stop, 2))},
+            timeout=10
+        )
+        if r.status_code in (200, 201):
+            log(f"  ✅ Stop updated: {symbol} → ${new_stop:.2f}")
+            return True
+    except Exception as e:
+        log(f"  Stop update error {symbol}: {e}", "WARN")
+    return False
+
+
+def sync_positions_from_alpaca():
+    """
+    Pull live position data from Alpaca and update our local trades file.
+    Uses Alpaca as the source of truth — catches anything we missed.
+    Also detects positions that were closed by Alpaca (stop/target hit) 
+    and updates our records accordingly.
+    """
+    log("Syncing positions from Alpaca...")
+    alpaca_positions = get_open_positions()
+    alpaca_syms      = {p.get("symbol") for p in alpaca_positions}
+
+    trades = load_trades()
+    updated = False
+
+    for trade in trades:
+        if trade.get("status") != "open":
+            continue
+        sym = trade["symbol"]
+
+        if sym not in alpaca_syms:
+            # Position closed by Alpaca (stop or target hit) — update our record
+            trade["status"]     = "closed"
+            trade["closed_at"]  = datetime.now(ET).isoformat()
+            trade["close_reason"] = "ALPACA_CLOSED (stop or target hit)"
+
+            # Try to get fill price from recent orders
+            try:
+                r = requests.get(
+                    f"{ALPACA_BASE}/v2/orders",
+                    headers=ALPACA_HEADERS,
+                    params={"symbols": sym, "status": "closed", "limit": 5},
+                    timeout=8
+                )
+                if r.ok:
+                    orders = r.json()
+                    for o in orders:
+                        if o.get("filled_avg_price"):
+                            close_price = float(o["filled_avg_price"])
+                            entry_price = trade.get("entry_price", close_price)
+                            direction   = trade.get("direction", "long")
+                            pnl_pct = ((close_price - entry_price) / entry_price * 100
+                                      if direction == "long"
+                                      else (entry_price - close_price) / entry_price * 100)
+                            trade["closed_price"] = close_price
+                            trade["pnl_pct"]      = round(pnl_pct, 2)
+                            trade["pnl"]          = round(
+                                pnl_pct / 100 * entry_price * trade.get("shares", 1), 2)
+                            break
+            except: pass
+
+            log(f"  Synced: {sym} closed by Alpaca "
+                f"P&L: {trade.get('pnl_pct', 0):+.1f}%")
+            log_trade_outcome(trade)
+            alert_trade_close(
+                sym, trade.get("direction", "long"),
+                trade.get("entry_price", 0),
+                trade.get("closed_price", 0),
+                trade.get("shares", 0),
+                trade.get("close_reason", "")
+            )
+            updated = True
+
+    # Update unrealized P&L for still-open positions
+    for pos in alpaca_positions:
+        sym = pos.get("symbol")
+        unreal = float(pos.get("unrealized_pl", 0))
+        unreal_pct = float(pos.get("unrealized_plpc", 0)) * 100
+        for trade in trades:
+            if trade.get("symbol") == sym and trade.get("status") == "open":
+                trade["unrealized_pl"]  = round(unreal, 2)
+                trade["unrealized_pct"] = round(unreal_pct, 2)
+                trade["current_price"]  = float(pos.get("current_price", 0))
+                updated = True
+
+    if updated:
+        save_trades(trades)
+        log("Position sync complete")
+    else:
+        log("Position sync: no changes")
+
+    return alpaca_positions
+
+
+def apply_trailing_stops():
+    """
+    Move stop losses up as positions profit — locks in gains automatically.
+    
+    Rules:
+    - Once up 1%:  move stop to breakeven (entry price)
+    - Once up 2%:  trail stop to 0.5% below current price  
+    - Once up 4%:  trail stop to 1% below current price
+    - Once up 7%:  trail stop to 2% below current price
+    
+    For short positions, mirror logic applies (stop moves DOWN as price falls).
+    """
+    trades = load_trades()
+    updated = False
+
+    for trade in trades:
+        if trade.get("status") != "open":
+            continue
+
+        sym         = trade["symbol"]
+        entry       = trade.get("entry_price", 0)
+        current     = trade.get("current_price", 0) or entry
+        direction   = trade.get("direction", "long")
+        current_stop = trade.get("stop_loss", 0)
+        order_id    = trade.get("order_id", "")
+
+        if not entry or not current:
+            continue
+
+        # Calculate profit percentage
+        if direction == "long":
+            profit_pct = (current - entry) / entry * 100
+        else:
+            profit_pct = (entry - current) / entry * 100
+
+        # Determine new stop based on profit level
+        new_stop = current_stop
+        reason   = ""
+
+        if direction == "long":
+            if profit_pct >= 7.0:
+                new_stop = round(current * 0.98, 2)   # 2% trail
+                reason   = f"trailing 2% below (up {profit_pct:.1f}%)"
+            elif profit_pct >= 4.0:
+                new_stop = round(current * 0.99, 2)   # 1% trail
+                reason   = f"trailing 1% below (up {profit_pct:.1f}%)"
+            elif profit_pct >= 2.0:
+                new_stop = round(current * 0.995, 2)  # 0.5% trail
+                reason   = f"trailing 0.5% below (up {profit_pct:.1f}%)"
+            elif profit_pct >= 1.0:
+                new_stop = round(entry * 1.001, 2)    # Breakeven + 0.1%
+                reason   = f"moved to breakeven (up {profit_pct:.1f}%)"
+        else:  # short
+            if profit_pct >= 7.0:
+                new_stop = round(current * 1.02, 2)
+                reason   = f"trailing 2% above (down {profit_pct:.1f}%)"
+            elif profit_pct >= 4.0:
+                new_stop = round(current * 1.01, 2)
+                reason   = f"trailing 1% above (down {profit_pct:.1f}%)"
+            elif profit_pct >= 2.0:
+                new_stop = round(current * 1.005, 2)
+                reason   = f"trailing 0.5% above (down {profit_pct:.1f}%)"
+            elif profit_pct >= 1.0:
+                new_stop = round(entry * 0.999, 2)
+                reason   = f"moved to breakeven (down {profit_pct:.1f}%)"
+
+        # Only update if stop improved
+        improved = (direction == "long"  and new_stop > current_stop) or \
+                   (direction == "short" and new_stop < current_stop)
+
+        if improved and reason:
+            log(f"  Trailing stop: {sym} {direction} "
+                f"${current_stop:.2f} → ${new_stop:.2f} | {reason}")
+            trade["stop_loss"]     = new_stop
+            trade["trailing_stop"] = True
+            trade["trail_reason"]  = reason
+
+            # Update in Alpaca
+            if order_id:
+                update_stop_loss(sym, order_id, new_stop)
+
+            lock_msg = "Lock in profit — can't lose now!" if profit_pct >= 1.0 else ""
+            _tg(
+                f"📌 *Trailing Stop Updated — {sym}*\n"
+                f"Stop: ${current_stop:.2f} → *${new_stop:.2f}*\n"
+                f"Current: ${current:.2f} | {reason}\n"
+                f"{lock_msg}"
+            )
+            updated = True
+
+    if updated:
+        save_trades(trades)
+
+
+def check_news_emergency_exit():
+    """
+    Check open positions for major negative headlines that warrant immediate exit.
+    Runs on every cycle — catches news-driven drops before the stop is hit.
+    
+    Triggers on:
+    - Headline score < -50 (severe negative news)
+    - Specific emergency keywords regardless of score
+    """
+    EMERGENCY_KEYWORDS = [
+        "sec charges", "fraud charges", "going concern", "chapter 11",
+        "bankruptcy filing", "emergency shutdown", "trading halted",
+        "fda rejection", "clinical trial failed", "ceo arrested",
+        "accounting fraud", "restatement", "delisted",
+    ]
+
+    trades = load_trades()
+    for trade in trades:
+        if trade.get("status") != "open":
+            continue
+
+        sym       = trade["symbol"]
+        direction = trade.get("direction", "long")
+        t         = tickers.get(sym)
+
+        if not t:
+            continue
+
+        # Only emergency exit long positions on negative news
+        # (shorts benefit from negative news)
+        if direction == "short":
+            continue
+
+        # Check headline score
+        emergency = False
+        trigger   = ""
+
+        if t.headline_score < -50:
+            emergency = True
+            trigger   = f"Headline score {t.headline_score:.0f} (severe negative)"
+
+        if not emergency:
+            for h in t.headlines:
+                h_low = h.lower()
+                for kw in EMERGENCY_KEYWORDS:
+                    if kw in h_low:
+                        emergency = True
+                        trigger   = f"Emergency keyword: '{kw}' in headline"
+                        break
+                if emergency:
+                    break
+
+        if emergency:
+            qty  = trade.get("shares", 1)
+            side = "sell" if direction == "long" else "buy"
+            log(f"  🚨 EMERGENCY EXIT: {sym} | {trigger}", "WARN")
+
+            success = close_position_market(sym, qty, side,
+                                            f"Emergency exit: {trigger}")
+            if success:
+                trade["status"]       = "closed"
+                trade["close_reason"] = f"EMERGENCY: {trigger}"
+                trade["closed_at"]    = datetime.now(ET).isoformat()
+                save_trades(trades)
+                log_trade_outcome(trade)
+
+                _tg(
+                    f"🚨 *EMERGENCY EXIT — {sym}*\n"
+                    f"Reason: {trigger}\n"
+                    f"Position closed at market to limit damage.\n"
+                    f"Headlines: {t.headlines[0][:100] if t.headlines else 'N/A'}"
+                )
+
+
+def eod_close_all():
+    """
+    Close all open positions before market close (3:55 PM ET).
+    Avoids overnight gap risk — positions that haven't hit stop/target
+    get closed at market price with whatever P&L is on the table.
+    
+    Only runs if EOD_CLOSE env var is set to 'true' OR
+    if it's between 3:50-4:00 PM ET.
+    """
+    now         = datetime.now(ET)
+    eod_enabled = os.environ.get("EOD_CLOSE", "true").lower() == "true"
+
+    # Only run in the EOD window
+    is_eod_window = (now.hour == 15 and now.minute >= 50) or \
+                    (now.hour == 16 and now.minute == 0)
+
+    if not is_eod_window or not eod_enabled:
+        return
+
+    positions = get_open_positions()
+    if not positions:
+        log("EOD: No open positions to close")
+        return
+
+    log(f"EOD CLOSE: Closing {len(positions)} position(s) before market close...")
+    _tg(
+        f"🔔 *EOD Close — {now.strftime('%H:%M ET')}*\n"
+        f"Closing {len(positions)} open position(s) before market close.\n"
+        f"Avoiding overnight risk."
+    )
+
+    closed = 0
+    for pos in positions:
+        sym  = pos.get("symbol")
+        qty  = int(float(pos.get("qty", 1)))
+        side_held = pos.get("side", "long")
+        close_side = "sell" if side_held == "long" else "buy"
+        unreal_pct = float(pos.get("unrealized_plpc", 0)) * 100
+        unreal_pl  = float(pos.get("unrealized_pl", 0))
+
+        success = close_position_market(
+            sym, qty, close_side, f"EOD close (P&L: {unreal_pct:+.1f}%)"
+        )
+        if success:
+            closed += 1
+            _tg(
+                f"{'✅' if unreal_pl > 0 else '🔴'} *EOD Closed: {sym}*\n"
+                f"P&L: {unreal_pct:+.1f}% (${unreal_pl:+.2f})\n"
+            )
+            # Update trade record
+            trades = load_trades()
+            for trade in trades:
+                if trade.get("symbol") == sym and trade.get("status") == "open":
+                    trade["status"]       = "closed"
+                    trade["close_reason"] = "EOD_CLOSE"
+                    trade["closed_at"]    = datetime.now(ET).isoformat()
+                    trade["closed_price"] = float(pos.get("current_price", 0))
+                    trade["pnl_pct"]      = round(unreal_pct, 2)
+                    trade["pnl"]          = round(unreal_pl, 2)
+                    log_trade_outcome(trade)
+            save_trades(trades)
+
+    log(f"EOD close complete: {closed}/{len(positions)} closed")
+
+
+def run_position_monitor():
+    """
+    Master position monitor — runs every cycle.
+    Calls all four monitoring functions in the right order.
+    """
+    log("\n── Position Monitor ──────────────────────────────────────")
+
+    # 1. Sync from Alpaca (source of truth)
+    alpaca_positions = sync_positions_from_alpaca()
+
+    open_count = len(alpaca_positions)
+    if open_count == 0:
+        log("No open positions — monitor complete")
+        return
+
+    log(f"Monitoring {open_count} open position(s)")
+
+    # 2. Refresh prices for open positions only (fast)
+    open_syms = [p.get("symbol") for p in alpaca_positions]
+    for sym in open_syms:
+        try:
+            data = yf.Ticker(sym).history(period="1d")
+            if not data.empty and sym in tickers:
+                tickers[sym].price = float(data["Close"].iloc[-1])
+                # Quick headline refresh for news emergency check
+                since = (datetime.now(ET) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                r = requests.get(
+                    f"{ALPACA_DATA}/v1beta1/news",
+                    headers={"APCA-API-KEY-ID": ALPACA_KEY,
+                             "APCA-API-SECRET-KEY": ALPACA_SECRET},
+                    params={"symbols": sym, "start": since, "limit": 5},
+                    timeout=6
+                )
+                if r.ok:
+                    articles = r.json().get("news", [])
+                    headlines = [a["headline"] for a in articles[:5]]
+                    tickers[sym].headlines    = headlines
+                    tickers[sym].headline_score = score_headlines(headlines, sym)["score"]
+        except Exception as e:
+            log(f"  Price refresh {sym}: {e}", "WARN")
+
+    # 3. Apply trailing stops
+    apply_trailing_stops()
+
+    # 4. Check for news emergencies
+    check_news_emergency_exit()
+
+    # 5. EOD close check
+    eod_close_all()
+
+    log("── Monitor complete ───────────────────────────────────────\n")
     day_pnl     = sum(t.get("pnl", 0) for t in today_closed)
     loss_pct    = day_pnl / equity if equity else 0
     if loss_pct <= -RISK["max_daily_loss_pct"]:
@@ -1119,15 +1561,21 @@ def main():
         )
         return
 
+    # ── Position monitor — always runs first ──────────────────────────────
+    # Syncs from Alpaca, applies trailing stops, checks news, handles EOD close
+    run_position_monitor()
+
     open_positions = get_open_positions()
     log(f"Open positions: {len(open_positions)}/{RISK['max_open_positions']}")
     if len(open_positions) >= RISK["max_open_positions"]:
         log("Max positions reached — not scanning for new entries")
+        commit_state_to_github()
         return
 
     signals = scan_all()
     if not signals:
         log("No signals this run — exiting")
+        commit_state_to_github()
         return
 
     slots  = RISK["max_open_positions"] - len(open_positions)
