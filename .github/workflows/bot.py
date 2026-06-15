@@ -81,19 +81,21 @@ SECTOR_MAP = {
 }
 
 # ── Risk config ────────────────────────────────────────────────────────────────
-# Updated per auto-adjust recommendations (high confidence):
-# rsi_min 40→60, volume_min 1.1→2.0, take_profit_atr_mult 2.5→2.0
+# Updated per backtest results (23% WR → target 38%+):
+# RSI min 60→65, volume 2x, take_profit 2.0x, dead money 2h, max hold 4h
 RISK = {
     "stop_loss_atr_mult":    1.5,
-    "take_profit_atr_mult":  2.0,   # was 2.5 — take profits faster
+    "take_profit_atr_mult":  2.0,
     "max_position_pct":      0.05,
     "max_risk_per_trade_pct":0.02,
     "max_daily_loss_pct":    0.02,
     "max_open_positions":    6,
-    "rsi_min":               60,    # was 40 — only trade confirmed momentum
+    "rsi_min":               65,    # was 60 — only confirmed strong momentum
     "rsi_max":               72,
-    "volume_min_mult":       2.0,   # was 1.1 — only trade genuine volume surges
+    "volume_min_mult":       2.0,
     "atr_pct_max":           0.04,
+    "dead_money_hours":      2,     # was 4 — close flat positions faster
+    "max_hold_hours":        4,     # was 8 — cut losers sooner
 }
 
 # ── State files (persisted via GitHub Actions cache) ──────────────────────────
@@ -674,8 +676,8 @@ def scan_long(symbol) -> dict | None:
     elif m.vix_regime == "elevated": mac_score -= 20
     if m.yield_curve < -0.5:         mac_score -= 10
     if mac_score < 30: return None
-    # Exclude ranging markets per auto-adjust — not enough directional edge
-    if m.market_regime == "ranging": return None
+    # Only trade longs in confirmed uptrend — backtest shows 37% WR vs 16-25% elsewhere
+    if m.market_regime != "trending_up": return None
     # Headline + sentiment adjustments
     hl_score = max(0, min(100, 50 + t.headline_score / 2))
     reddit = m.reddit_mentions.get(symbol, {})
@@ -1362,8 +1364,8 @@ def check_time_based_exits():
         qty         = trade.get("shares", 1)
         close_side  = "sell" if direction == "long" else "buy"
 
-        # Rule 1: Dead money — open > 4 hours, barely moved
-        if hours_open >= 4 and -0.5 <= unreal_pct <= 0.5:
+        # Rule 1: Dead money — open > dead_money_hours, barely moved
+        if hours_open >= RISK.get("dead_money_hours", 2) and -0.5 <= unreal_pct <= 0.5:
             log(f"  Time exit (dead money): {sym} open {hours_open:.1f}h, "
                 f"P&L {unreal_pct:+.1f}% — closing", "WARN")
             success = close_position_market(sym, qty, close_side,
@@ -1380,8 +1382,8 @@ def check_time_based_exits():
                 )
                 updated = True
 
-        # Rule 2: Force close if open > 8 hours (avoid overnight)
-        elif hours_open >= 8:
+        # Rule 2: Force close if open > max_hold_hours
+        elif hours_open >= RISK.get("max_hold_hours", 4):
             log(f"  Time exit (8h max): {sym} open {hours_open:.1f}h — force closing", "WARN")
             success = close_position_market(sym, qty, close_side,
                                             f"8-hour max hold exceeded")
@@ -1422,10 +1424,10 @@ def check_time_based_exits():
         save_trades(trades)
 
 
-
+def run_position_monitor():
     """
     Master position monitor — runs every cycle.
-    Calls all four monitoring functions in the right order.
+    Calls all monitoring functions in the right order.
     """
     log("\n── Position Monitor ──────────────────────────────────────")
 
