@@ -2,36 +2,42 @@
   "adjustments": [
     {
       "param": "rsi_min",
-      "current": 40,
-      "suggested": 60,
-      "reason": "RSI 60-72 shows 28.3% WR vs 19.3% for 40-50 and 22.1% for 50-60, representing a 46% improvement over lower ranges"
+      "current": 60,
+      "suggested": 40,
+      "reason": "RSI 40-50 shows 23.9% WR but RSI 60-72 shows 36.9% WR. However, expanding to capture the 40-60 range may add volume while maintaining selectivity at entry"
+    },
+    {
+      "param": "rsi_max",
+      "current": 72,
+      "suggested": 72,
+      "reason": "Keep current - RSI 60-72 is the best performing segment at 36.9% WR"
     },
     {
       "param": "volume_min",
-      "current": 1.1,
-      "suggested": 2.0,
-      "reason": "Volume >2x shows 33.3% WR vs 24.5% for 1.1-2x, a 36% improvement that could push expectancy positive"
+      "current": 2.0,
+      "suggested": 1.1,
+      "reason": "Volume >2x shows 30.0% WR vs 1.1-2x at 29.7% - virtually identical performance. Lowering threshold increases signal count without degrading win rate"
     },
     {
-      "param": "short_trading",
-      "current": "enabled",
-      "suggested": "disabled",
-      "reason": "Short WR of 17.9% vs Long WR of 24.9% indicates shorts are dragging down overall performance by 28%"
+      "param": "target_atr_mult",
+      "current": 2.0,
+      "suggested": 2.5,
+      "reason": "Avg win +4.08% vs avg loss -3.18% suggests winners can run further. With 1.28 win/loss ratio, extending targets may capture more upside on winning trades"
+    },
+    {
+      "param": "direction_filter",
+      "current": "both",
+      "suggested": "long_only",
+      "reason": "Long WR 37.0% vs Short WR 21.7% - eliminating shorts would dramatically improve overall win rate and expectancy"
     },
     {
       "param": "regime_filter",
       "current": "none",
       "suggested": "exclude_ranging",
-      "reason": "Ranging regime shows only 12% WR vs 24% trending_up and 16% trending_down, filtering this could eliminate worst performers"
-    },
-    {
-      "param": "target_atr_mult",
-      "current": 2.5,
-      "suggested": 2.0,
-      "reason": "With avg win at 5.05% and negative expectancy, reducing target to lock in winners faster may improve realized gains given low win rate"
+      "reason": "Trending_up 34% and trending_down 20% both exceed ranging at 16%. Filtering out ranging markets could improve expectancy significantly"
     }
   ],
-  "summary": "The strategy suffers from poor directional bias (shorts underperform by 28%) and trades too frequently in unfavorable conditions. Filtering for higher RSI (60+), higher volume (>2x), and avoiding ranging markets while disabling shorts could potentially shift expectancy positive by eliminating the lowest performing 40-50% of signals.",
+  "summary": "Strategy shows strongly asymmetric performance with longs significantly outperforming shorts (37% vs 22% WR). Negative expectancy of -0.96% is primarily driven by poor short performance and ranging market trades. Focus on long-only trades in trending markets while relaxing volume requirements to increase signal count without degrading quality.",
   "confidence": "high",
-  "priority_change": "Disable short trading immediately - the 7 percentage point WR gap between longs (24.9%) and shorts (17.9%) is the clearest performance differential in the data and easiest to implement"
+  "priority_change": "Switch to long_only direction filter - this single change eliminates the 21.7% WR short trades and retains 37% WR longs, likely flipping expectancy positive immediately"
 }
