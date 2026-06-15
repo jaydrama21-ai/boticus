@@ -1675,6 +1675,9 @@ def main():
                 for p in positions
             ])
         )
+        # Commit state so dashboard gets updated
+        log("Committing state to GitHub for dashboard...")
+        commit_state_to_github()
         return
 
     # ── Main scan mode ─────────────────────────────────────────────────────
@@ -2248,7 +2251,6 @@ def commit_state_to_github():
     """
     Commits trades.json, feedback.json, backtest_latest.json, auto_adjust_latest.json
     back to the GitHub repo so Streamlit Cloud can read live data.
-    Uses GITHUB_TOKEN (automatically available in Actions) and GITHUB_REPOSITORY.
     """
     if not GITHUB_TOKEN or not GITHUB_REPO:
         log("State commit: GITHUB_TOKEN or GITHUB_REPOSITORY not set — skipping", "WARN")
@@ -2259,7 +2261,7 @@ def commit_state_to_github():
     headers  = {
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept":        "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2026-11-28",
+        "X-GitHub-Api-Version": "2022-11-28",
     }
 
     files_to_commit = [
@@ -2267,21 +2269,24 @@ def commit_state_to_github():
         "feedback.json",
         "backtest_latest.json",
         "auto_adjust_latest.json",
+        "bot.log",
     ]
 
     committed = 0
     for filename in files_to_commit:
         filepath = STATE_DIR / filename
         if not filepath.exists():
+            log(f"  Skip {filename} — not found at {filepath}")
             continue
         try:
             content     = filepath.read_bytes()
             b64_content = base64.b64encode(content).decode()
             repo_path   = f"bot_state/{filename}"
 
-            # Get current SHA if file exists (needed for update)
+            # Get current SHA if file exists
             sha = None
-            r = requests.get(f"{api_base}/{repo_path}", headers=headers, timeout=8)
+            r = requests.get(f"{api_base}/{repo_path}", headers=headers, timeout=10)
+            log(f"  SHA check {filename}: {r.status_code}")
             if r.status_code == 200:
                 sha = r.json().get("sha")
 
@@ -2295,16 +2300,16 @@ def commit_state_to_github():
 
             r = requests.put(f"{api_base}/{repo_path}", headers=headers,
                              json=payload, timeout=15)
+            log(f"  Commit {filename}: {r.status_code}")
             if r.status_code in (200, 201):
                 committed += 1
-                log(f"  Committed {filename} to repo")
+                log(f"  ✅ Committed {filename} to repo")
             else:
-                log(f"  Commit failed for {filename}: {r.status_code} {r.text[:100]}", "WARN")
+                log(f"  ❌ Commit failed {filename}: {r.status_code} — {r.text[:150]}", "WARN")
         except Exception as e:
-            log(f"  Commit error for {filename}: {e}", "WARN")
+            log(f"  Commit error {filename}: {e}", "WARN")
 
-    if committed > 0:
-        log(f"State committed to GitHub: {committed} file(s)")
+    log(f"State commit complete: {committed}/{len(files_to_commit)} files")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
