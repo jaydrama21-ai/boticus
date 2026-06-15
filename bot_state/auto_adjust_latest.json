@@ -1,0 +1,37 @@
+{
+  "adjustments": [
+    {
+      "param": "rsi_min",
+      "current": 40,
+      "suggested": 60,
+      "reason": "RSI 60-72 shows 28.3% WR vs 19.3% for 40-50 and 22.1% for 50-60, representing a 46% improvement over lower ranges"
+    },
+    {
+      "param": "volume_min",
+      "current": 1.1,
+      "suggested": 2.0,
+      "reason": "Volume >2x shows 33.3% WR vs 24.5% for 1.1-2x, a 36% improvement that could push expectancy positive"
+    },
+    {
+      "param": "short_trading",
+      "current": "enabled",
+      "suggested": "disabled",
+      "reason": "Short WR of 17.9% vs Long WR of 24.9% indicates shorts are dragging down overall performance by 28%"
+    },
+    {
+      "param": "regime_filter",
+      "current": "none",
+      "suggested": "exclude_ranging",
+      "reason": "Ranging regime shows only 12% WR vs 24% trending_up and 16% trending_down, filtering this could eliminate worst performers"
+    },
+    {
+      "param": "target_atr_mult",
+      "current": 2.5,
+      "suggested": 2.0,
+      "reason": "With avg win at 5.05% and negative expectancy, reducing target to lock in winners faster may improve realized gains given low win rate"
+    }
+  ],
+  "summary": "The strategy suffers from poor directional bias (shorts underperform by 28%) and trades too frequently in unfavorable conditions. Filtering for higher RSI (60+), higher volume (>2x), and avoiding ranging markets while disabling shorts could potentially shift expectancy positive by eliminating the lowest performing 40-50% of signals.",
+  "confidence": "high",
+  "priority_change": "Disable short trading immediately - the 7 percentage point WR gap between longs (24.9%) and shorts (17.9%) is the clearest performance differential in the data and easiest to implement"
+}
