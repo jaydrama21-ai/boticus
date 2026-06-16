@@ -34,6 +34,7 @@ trades   = load("trades.json")   or []
 feedback = load("feedback.json") or []
 bt       = load("backtest_latest.json")
 adj      = load("auto_adjust_latest.json")
+wl_data  = load("watchlist.json")
 
 open_t    = [t for t in trades   if t.get("status") == "open"]
 today_str = date.today().isoformat()
@@ -59,7 +60,7 @@ r3a.metric("Avg Win",        f"{avg_win:+.1f}%")
 r3b.metric("Avg Loss",       f"{avg_loss:+.1f}%")
 st.divider()
 
-tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs(["📊 Positions","📈 P&L","🔬 Quality","📉 Backtest","🔧 Adjust","📋 Log"])
+tab1,tab2,tab3,tab4,tab5,tab6,tab7 = st.tabs(["📊 Positions","📈 P&L","🔬 Quality","📉 Backtest","🔧 Adjust","📋 Log","📋 Watchlist"])
 
 with tab1:
     if open_t:
@@ -199,7 +200,29 @@ with tab6:
             elif "Trailing"in line: colored.append(f"📌 {line}")
             elif "EOD"     in line: colored.append(f"🔔 {line}")
             elif "Time exit"in line:colored.append(f"⏰ {line}")
+            elif "MACRO"   in line: colored.append(f"🚨 {line}")
             else:                   colored.append(f"   {line}")
         st.code("\\n".join(colored), language="text")
     else:
         st.info("No log file yet")
+
+with tab7:
+    st.subheader("Active Watchlist")
+    if wl_data:
+        core   = wl_data.get("core", [])
+        active = wl_data.get("active", [])
+        dynamic = [t for t in active if t not in core]
+        updated = wl_data.get("updated_at", "")[:16].replace("T", " ")
+        st.caption(f"Last updated: {updated}")
+        ca, cb = st.columns(2)
+        ca.metric("Total Tickers",   len(active))
+        cb.metric("Dynamic Tickers", len(dynamic))
+        st.write("**Core (always on):**")
+        st.write(", ".join(core))
+        if dynamic:
+            st.write("**Dynamic (today's movers):**")
+            st.write(", ".join(dynamic))
+        else:
+            st.info("No dynamic tickers added yet — runs at market open")
+    else:
+        st.info("Watchlist data not available yet")
