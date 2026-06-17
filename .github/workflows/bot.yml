@@ -2,22 +2,18 @@ name: Trading Bot
 
 on:
   schedule:
-    # Every 10 min market hours Mon-Fri (covers EST and EDT)
     - cron: '*/10 13-21 * * 1-5'
-    # Extra runs at 3:50 and 3:55 PM ET for EOD close window (19:50/19:55 UTC summer)
     - cron: '50 19 * * 1-5'
     - cron: '55 19 * * 1-5'
     - cron: '50 20 * * 1-5'
     - cron: '55 20 * * 1-5'
-    # Post-close review 4:30 PM ET
     - cron: '30 20,21 * * 1-5'
-    # Sunday backtest + auto-adjust 8 AM ET
     - cron: '0 12,13 * * 0'
 
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Run mode: scan | review | status | backtest | auto_adjust | dashboard'
+        description: 'scan | review | status | backtest | auto_adjust | dashboard | research'
         required: false
         default: 'scan'
       backtest_days:
@@ -91,4 +87,5 @@ jobs:
             bot_state/bot.log
             bot_state/backtest_latest.json
             bot_state/auto_adjust_latest.json
+            bot_state/research_digest.json
           retention-days: 14
