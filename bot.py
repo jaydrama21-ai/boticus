@@ -732,6 +732,233 @@ def score_headlines(headlines: list, symbol: str) -> dict:
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# REDDIT RESEARCH SCRAPER
+# Uses Reddit API (OAuth) to pull top research posts from target subreddits
+# Extracts trading insights using Sonnet and stores as research_digest.json
+# Runs weekly — bot reads digest on every signal score
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REDDIT RESEARCH SCRAPER — no credentials needed
+# Uses Reddit's public JSON endpoints (old.reddit.com)
+# Pulls top research posts weekly, extracts insights with Sonnet
+# ══════════════════════════════════════════════════════════════════════════════
+
+REDDIT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; boticus-research/1.0)",
+    "Accept": "application/json",
+}
+
+RESEARCH_SUBREDDITS = [
+    "options",
+    "algotrading",
+    "quant",
+    "stocks",
+    "wallstreetbets",
+    "investing",
+    "SecurityAnalysis",
+]
+
+RESEARCH_INDICATORS = [
+    "backtest", "study", "research", "data", "results", "tested",
+    "strategy", "win rate", "return", "sharpe", "drawdown", "signals",
+    "statistical", "significant", "sample size", "historical", "analysis",
+    "found that", "shows that", "performance", "edge", "alpha",
+    "i tested", "i backtested", "i ran", "i studied", "we found",
+    "the data shows", "after testing", "over x years", "out of sample",
+]
+
+def fetch_reddit_research_posts(limit_per_sub: int = 10) -> list:
+    """
+    Pull top posts from research subreddits using public JSON.
+    No auth, no credentials, works immediately.
+    Filters for posts that contain actual research/data keywords.
+    """
+    all_posts = []
+
+    for sub in RESEARCH_SUBREDDITS:
+        for sort in ["top", "hot"]:
+            try:
+                url = f"https://old.reddit.com/r/{sub}/{sort}.json"
+                r   = requests.get(
+                    url,
+                    headers=REDDIT_HEADERS,
+                    params={"limit": limit_per_sub, "t": "week"},
+                    timeout=10
+                )
+                if not r.ok:
+                    log(f"  Reddit r/{sub}/{sort}: HTTP {r.status_code}", "WARN")
+                    continue
+
+                posts = r.json().get("data", {}).get("children", [])
+                for post in posts:
+                    d     = post.get("data", {})
+                    title = d.get("title", "")
+                    body  = d.get("selftext", "")
+                    score = d.get("score", 0)
+                    url_p = f"https://reddit.com{d.get('permalink','')}"
+
+                    # Filter: must have research keywords + minimum upvotes
+                    text_lower   = (title + " " + body).lower()
+                    is_research  = any(kw in text_lower for kw in RESEARCH_INDICATORS)
+                    has_traction = score >= 15
+                    not_removed  = body not in ("[removed]", "[deleted]", "")
+
+                    if is_research and has_traction and not_removed:
+                        all_posts.append({
+                            "subreddit": sub,
+                            "title":     title[:200],
+                            "body":      body[:3000],
+                            "score":     score,
+                            "url":       url_p,
+                            "created":   d.get("created_utc", 0),
+                        })
+
+            except Exception as e:
+                log(f"  Reddit r/{sub}/{sort}: {e}", "WARN")
+
+            time.sleep(1)  # Be polite — avoid rate limiting
+
+    # Deduplicate by title, sort by score
+    seen    = set()
+    unique  = []
+    for p in sorted(all_posts, key=lambda x: x["score"], reverse=True):
+        if p["title"] not in seen:
+            seen.add(p["title"])
+            unique.append(p)
+
+    log(f"Reddit research: {len(unique)} posts found across {len(RESEARCH_SUBREDDITS)} subreddits")
+    return unique[:20]
+
+
+def extract_trading_insights(posts: list) -> dict:
+    """
+    Feed research posts to Sonnet and extract actionable trading insights.
+    Returns structured insights injected into signal scoring.
+    """
+    if not posts:
+        return {}
+
+    posts_text = "\n\n---\n\n".join([
+        f"SUBREDDIT: r/{p['subreddit']} | UPVOTES: {p['score']}\n"
+        f"TITLE: {p['title']}\n"
+        f"URL: {p['url']}\n"
+        f"CONTENT: {p['body'][:1500]}"
+        for p in posts[:12]
+    ])
+
+    prompt = (
+        "You are analyzing Reddit research posts about trading strategies.\n"
+        "Extract ONLY findings that are data-backed and actionable for an algorithmic system.\n"
+        "Focus on: win rates, entry conditions, VIX levels, time of day, regime conditions, "
+        "RSI ranges, volume patterns, holding periods, sector performance, options strategies.\n"
+        "Ignore opinions, predictions, and posts without actual data.\n\n"
+        "Output ONLY valid JSON — no markdown, no preamble:\n"
+        '{"insights": ['
+        '{"finding": "specific data-backed finding",'
+        '"tickers": ["SPY"] or [] if general,'
+        '"condition": "when/where this applies",'
+        '"edge": "the statistical edge found",'
+        '"confidence": "high/medium/low",'
+        '"source": "r/subreddit — post title",'
+        '"actionable": "how to use in signal scoring"}'
+        '], "summary": "2-3 sentences on the most important findings this week"}'
+    )
+
+    try:
+        resp = ai_client.messages.create(
+            model=SONNET_MODEL, max_tokens=1500,
+            system="Extract only data-backed trading insights. Output only valid JSON.",
+            messages=[{"role": "user", "content": f"{prompt}\n\nPOSTS:\n{posts_text}"}]
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"): raw = raw[4:]
+        result = json.loads(raw.strip())
+        log(f"Research: extracted {len(result.get('insights',[]))} insights")
+        return result
+    except Exception as e:
+        log(f"Insight extraction error: {e}", "ERROR")
+        return {}
+
+
+def run_research_digest() -> dict:
+    """
+    Full research pipeline — runs weekly on Sundays.
+    1. Pull top research posts via public Reddit JSON
+    2. Extract insights with Sonnet
+    3. Save to research_digest.json
+    4. Send Telegram summary
+    """
+    log("Running weekly research digest...")
+
+    posts = fetch_reddit_research_posts()
+    if not posts:
+        log("No research posts found this week")
+        return {}
+
+    insights = extract_trading_insights(posts)
+    if not insights:
+        return {}
+
+    digest = {
+        "updated_at":      datetime.now(ET).isoformat(),
+        "posts_analyzed":  len(posts),
+        "insights":        insights.get("insights", []),
+        "summary":         insights.get("summary", ""),
+        "sources": [
+            {"title": p["title"], "url": p["url"], "score": p["score"],
+             "subreddit": p["subreddit"]}
+            for p in posts[:10]
+        ],
+    }
+
+    digest_file = STATE_DIR / "research_digest.json"
+    digest_file.write_text(json.dumps(digest, indent=2))
+    log(f"Research digest saved: {len(digest['insights'])} insights")
+
+    # Telegram summary
+    findings     = digest["insights"][:5]
+    findings_txt = "\n".join([
+        f"• {f['finding'][:120]} ({f['confidence']})"
+        for f in findings
+    ])
+    _tg(
+        f"📚 *Weekly Research Digest*\n"
+        f"Analyzed {len(posts)} posts across {len(RESEARCH_SUBREDDITS)} subreddits\n\n"
+        f"*Key findings:*\n{findings_txt}\n\n"
+        f"_{digest['summary'][:300]}_"
+    )
+    return digest
+
+
+def load_research_digest() -> str:
+    """Load research digest as context string for AI brain."""
+    digest_file = STATE_DIR / "research_digest.json"
+    if not digest_file.exists():
+        return ""
+    try:
+        digest  = json.loads(digest_file.read_text())
+        updated = digest.get("updated_at", "")[:10]
+        items   = digest.get("insights", [])
+        if not items:
+            return ""
+        lines = [f"=== COMMUNITY RESEARCH ({updated}) ==="]
+        for i in items[:8]:
+            lines.append(
+                f"• {i['finding']}"
+                + (f" [{','.join(i.get('tickers',[]))}]" if i.get("tickers") else "")
+                + f" — {i.get('edge','')} [{i.get('confidence','')}]"
+            )
+        lines.append(f"Summary: {digest.get('summary','')}")
+        return "\n".join(lines)
+    except Exception as e:
+        log(f"Research digest load error: {e}", "WARN")
+        return ""
+
+
 def fetch_reddit_mentions(symbols: list) -> dict:
     """
     Pull Reddit mentions from r/wallstreetbets and r/stocks.
@@ -1224,12 +1451,14 @@ SYSTEM_PROMPT = (
 
 def score_signal(sig: dict) -> dict:
     log(f"AI scoring {sig['symbol']} ({sig['direction'].upper()})...")
-    memory  = build_pattern_memory()
-    context = build_context(sig["symbol"])
-    s       = sig["scores"]
-    prompt  = (
+    memory   = build_pattern_memory()
+    context  = build_context(sig["symbol"])
+    research = load_research_digest()
+    s        = sig["scores"]
+    prompt   = (
         f"PATTERN MEMORY:\n{memory}\n\n"
-        f"MARKET CONTEXT:\n{context}\n\n"
+        + (f"COMMUNITY RESEARCH:\n{research}\n\n" if research else "")
+        + f"MARKET CONTEXT:\n{context}\n\n"
         f"SIGNAL: {sig['symbol']} {sig['direction'].upper()} {sig['type']}\n"
         f"Entry:${sig['entry']:.2f} Stop:${sig['stop']:.2f} "
         f"Target:${sig['target']:.2f} R/R:{sig['rr']:.2f}\n"
@@ -2020,6 +2249,9 @@ def main():
         bt   = run_backtest(lookback_days=days)
         if bt:
             run_auto_adjust(backtest=bt)
+        # Also run research digest on Sundays
+        if now.weekday() == 6:
+            run_research_digest()
         return
 
     # ── Auto-adjust only ───────────────────────────────────────────────────
@@ -2029,11 +2261,16 @@ def main():
         run_auto_adjust(backtest=bt)
         return
 
+    if mode == "research":
+        run_research_digest()
+        commit_state_to_github()
+        return
+
     # ── Post-close review ──────────────────────────────────────────────────
     if mode == "review" or (session == "closed" and now.hour == 16):
         generate_daily_review()
         commit_state_to_github()
-        # Run auto-adjust weekly on Fridays
+        # Friday — weekly auto-adjust + research digest
         if now.weekday() == 4:
             log("Friday — running weekly auto-adjust...")
             bt_file = STATE_DIR / "backtest_latest.json"
@@ -2711,6 +2948,7 @@ def commit_state_to_github():
         "auto_adjust_latest.json",
         "bot.log",
         "watchlist.json",
+        "research_digest.json",
     ]
 
     committed = 0
