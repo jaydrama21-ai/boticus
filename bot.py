@@ -882,100 +882,287 @@ def fetch_stocktwits_trending() -> list:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RESEARCH DIGEST — weekly intelligence summary
-# StockTwits sentiment + Fear & Greed + Unusual options activity
+# StockTwits + Fear & Greed + Fed Speeches + Earnings Transcripts
 # ══════════════════════════════════════════════════════════════════════════════
 
-def run_research_digest() -> dict:
+def fetch_fed_speeches(max_speeches: int = 3) -> list:
+    """Pull latest Fed speeches from federalreserve.gov RSS. Free, no auth."""
+    speeches = []
+    try:
+        from xml.etree import ElementTree as ET
+        from html.parser import HTMLParser
+
+        class TextExtractor(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.text = []; self.skip = False
+                self.skip_tags = {"script","style","nav","header","footer"}
+            def handle_starttag(self, tag, attrs):
+                if tag in self.skip_tags: self.skip = True
+            def handle_endtag(self, tag):
+                if tag in self.skip_tags: self.skip = False
+            def handle_data(self, data):
+                if not self.skip and data.strip(): self.text.append(data.strip())
+
+        # Fed speeches RSS
+        for feed_url, label in [
+            ("https://www.federalreserve.gov/feeds/speeches.xml", "speech"),
+            ("https://www.federalreserve.gov/feeds/press_monetary.xml", "FOMC"),
+        ]:
+            r = requests.get(feed_url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; boticus/1.0)"},
+                timeout=10)
+            if not r.ok: continue
+
+            root  = ET.fromstring(r.content)
+            items = root.findall(".//item")[:3]
+            for item in items:
+                title = (item.findtext("title") or "").strip()
+                link  = (item.findtext("link") or "").strip()
+                if not link or not title: continue
+
+                # Fetch full text
+                sr = requests.get(link,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; boticus/1.0)"},
+                    timeout=12)
+                if not sr.ok: continue
+
+                parser = TextExtractor()
+                parser.feed(sr.text)
+                full_text = " ".join(parser.text)[:4000]
+
+                if len(full_text) < 300: continue
+
+                speaker = "Fed"
+                for name in ["Powell","Jefferson","Waller","Cook","Kugler","Barr","Bowman","Logan"]:
+                    if name in title: speaker = name; break
+                if label == "FOMC": speaker = "FOMC"
+
+                speeches.append({
+                    "title":   title[:200],
+                    "speaker": speaker,
+                    "url":     link,
+                    "text":    full_text,
+                })
+                log(f"  Fed {label}: {speaker} — {title[:60]}")
+                if len(speeches) >= max_speeches: break
+            if len(speeches) >= max_speeches: break
+
+    except Exception as e:
+        log(f"  Fed speeches error: {e}", "WARN")
+    return speeches
+
+
+def fetch_earnings_transcripts(symbols: list, days_back: int = 14) -> list:
     """
-    Weekly intelligence digest — runs Sundays.
-    1. Fear & Greed Index — overall market mood
-    2. StockTwits trending — what retail is chasing
-    3. StockTwits sentiment on core watchlist
-    4. Summarize with Sonnet → save to research_digest.json
-    5. Send Telegram summary
+    Pull earnings call highlights from Motley Fool free pages.
+    Only fetches tickers that reported in the last days_back days.
     """
-    log("Running weekly research digest (StockTwits + Fear & Greed)...")
+    import re as _re
+    from datetime import date as _date
 
-    # 1. Market mood
-    fg = fetch_fear_greed()
+    transcripts = []
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-    # 2. Trending tickers
-    trending = fetch_stocktwits_trending()
+    PRIORITY = ["NVDA","AAPL","MSFT","GOOGL","META","AMZN","TSLA","AMD",
+                "JPM","GS","MS","BAC","LLY","UNH","XOM","CVX"]
+    ordered = [s for s in PRIORITY if s in symbols] + \
+              [s for s in symbols if s not in PRIORITY]
 
-    # 3. Sentiment on core watchlist
-    core_syms = CORE_WATCHLIST[:20]
-    sentiment = fetch_stocktwits_sentiment(core_syms)
+    for sym in ordered[:10]:
+        try:
+            url = f"https://www.fool.com/earnings/call-transcripts/{sym.lower()}/"
+            r   = requests.get(url, headers=headers, timeout=10)
+            if not r.ok: continue
 
-    # Build summary for Sonnet
-    bull_syms = [s for s, v in sentiment.items() if v.get("bullish_pct", 50) >= 65]
-    bear_syms = [s for s, v in sentiment.items() if v.get("bearish_pct", 50) >= 65]
+            links = _re.findall(
+                r'href="(/earnings/call-transcripts/\d{4}/\d{2}/\d{2}/[^"]+)"',
+                r.text
+            )
+            if not links: continue
 
-    context = (
-        f"Fear & Greed Index: {fg['score']:.0f}/100 ({fg['rating']}) — "
-        f"{'markets greedy, possible overextension' if fg['score'] >= 70 else 'markets fearful, possible opportunity' if fg['score'] <= 30 else 'neutral sentiment'}\n"
-        f"Change from yesterday: {fg['change']:+.1f} points\n\n"
-        f"StockTwits trending tickers this week: {', '.join(trending[:10])}\n\n"
-        f"Heavily bullish sentiment (65%+ bull): {', '.join(bull_syms) or 'none'}\n"
-        f"Heavily bearish sentiment (65%+ bear): {', '.join(bear_syms) or 'none'}\n\n"
-        f"Detailed sentiment:\n"
-        + "\n".join([
-            f"  {s}: {v['bullish_pct']:.0f}% bull / {v['bearish_pct']:.0f}% bear ({v['message_count']} msgs)"
-            for s, v in sorted(sentiment.items(), key=lambda x: x[1].get("message_count",0), reverse=True)[:10]
-        ])
-    )
+            # Check date
+            date_match = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/', links[0])
+            if date_match:
+                t_date = _date(int(date_match.group(1)),
+                               int(date_match.group(2)),
+                               int(date_match.group(3)))
+                if (_date.today() - t_date).days > days_back:
+                    continue
 
-    # Sonnet extraction
-    insights = []
-    summary  = ""
+            # Fetch transcript
+            tr = requests.get(f"https://www.fool.com{links[0]}", headers=headers, timeout=12)
+            if not tr.ok: continue
+
+            # Extract text
+            clean = _re.sub(r'<[^>]+>', ' ', tr.text)
+            clean = _re.sub(r'\s+', ' ', clean).strip()[:3000]
+            if len(clean) < 300: continue
+
+            # Find guidance statements
+            guidance = _re.findall(
+                r'(?:guidance|expect|outlook|revenue|margin|EPS|Q\d)[^.]{20,200}\.',
+                clean[:4000], _re.IGNORECASE
+            )
+
+            transcripts.append({
+                "symbol":     sym,
+                "url":        f"https://www.fool.com{links[0]}",
+                "highlights": guidance[:5],
+                "text":       clean,
+            })
+            log(f"  Earnings: {sym} transcript found")
+            time.sleep(0.5)
+
+        except Exception: pass
+
+    log(f"Earnings transcripts: {len(transcripts)} found")
+    return transcripts
+
+
+def summarize_fed_and_earnings(fed: list, earnings: list) -> dict:
+    """Feed Fed speeches + earnings to Sonnet for market-moving insights."""
+    if not fed and not earnings:
+        return {}
+
+    sections = []
+    if fed:
+        sections.append("=== FED SPEECHES ===")
+        for s in fed:
+            sections.append(f"{s['speaker']} — {s['title']}\n{s['text'][:1500]}")
+    if earnings:
+        sections.append("\n=== EARNINGS CALLS ===")
+        for e in earnings:
+            highlights = " | ".join(str(h)[:120] for h in e["highlights"][:3])
+            sections.append(f"{e['symbol']}: {highlights}\n{e['text'][:800]}")
+
+    combined = "\n".join(sections)[:6000]
+
     try:
         resp = ai_client.messages.create(
             model=SONNET_MODEL, max_tokens=1000,
-            system="Extract actionable trading insights from retail sentiment data. Output only valid JSON.",
+            system="Extract actionable trading signals from Fed speeches and earnings calls. Output only valid JSON.",
             messages=[{"role": "user", "content":
-                f"Based on this retail sentiment data, extract 3-5 actionable trading insights:\n\n{context}\n\n"
-                f'Output JSON: {{"insights": [{{"finding": "...", "tickers": [], "edge": "...", "confidence": "high/medium/low", "actionable": "..."}}], "summary": "2-3 sentences"}}'
+                f"Extract 3-5 trading insights from these Fed and earnings sources:\n\n{combined}\n\n"
+                f'Output JSON: {{"insights": [{{"finding": "specific finding", "tickers": ["AAPL"], "impact": "bullish/bearish/neutral", "confidence": "high/medium/low", "source": "Fed/Earnings", "actionable": "how to apply"}}], "summary": "2-3 sentences on key market implications"}}'
             }]
         )
         raw = resp.content[0].text.strip()
         if raw.startswith("```"): raw = raw.split("```")[1]; raw = raw[4:] if raw.startswith("json") else raw
-        result   = json.loads(raw.strip())
-        insights = result.get("insights", [])
-        summary  = result.get("summary", "")
-        log(f"Research digest: extracted {len(insights)} insights")
+        result = json.loads(raw.strip())
+        log(f"Fed/Earnings insights: {len(result.get('insights',[]))}")
+        return result
     except Exception as e:
-        log(f"Digest extraction error: {e}", "WARN")
-        summary = f"F&G: {fg['score']:.0f} ({fg['rating']}). Trending: {', '.join(trending[:5])}."
+        log(f"Fed/Earnings summarize error: {e}", "WARN")
+        return {}
+
+
+def run_research_digest() -> dict:
+    """
+    Weekly intelligence digest — runs Sundays.
+    Pulls: StockTwits sentiment + Fear & Greed + Fed speeches + Earnings transcripts
+    Extracts insights with Sonnet → feeds AI brain on every signal score
+    """
+    log("Running weekly research digest (StockTwits + Fear & Greed + Fed + Earnings)...")
+
+    # 1. Market mood
+    fg = fetch_fear_greed()
+
+    # 2. StockTwits trending
+    trending = fetch_stocktwits_trending()
+
+    # 3. StockTwits sentiment on core watchlist
+    core_syms = CORE_WATCHLIST[:20]
+    sentiment = fetch_stocktwits_sentiment(core_syms)
+
+    bull_syms = [s for s, v in sentiment.items() if v.get("bullish_pct", 50) >= 65]
+    bear_syms = [s for s, v in sentiment.items() if v.get("bearish_pct", 50) >= 65]
+
+    # 4. Fed speeches + FOMC statements
+    log("Fetching Fed speeches...")
+    fed_speeches = fetch_fed_speeches(max_speeches=3)
+
+    # 5. Recent earnings transcripts for watchlist
+    log("Fetching earnings transcripts...")
+    earnings = fetch_earnings_transcripts(get_watchlist(), days_back=14)
+
+    # 6. Sentiment context for Sonnet
+    sentiment_context = (
+        f"Fear & Greed Index: {fg['score']:.0f}/100 ({fg['rating']}) — "
+        f"{'markets greedy, overextension risk' if fg['score'] >= 70 else 'markets fearful, opportunity' if fg['score'] <= 30 else 'neutral sentiment'}\n"
+        f"Change from yesterday: {fg['change']:+.1f} points\n\n"
+        f"StockTwits trending: {', '.join(trending[:10])}\n"
+        f"Heavily bullish (65%+ bull): {', '.join(bull_syms) or 'none'}\n"
+        f"Heavily bearish (65%+ bear): {', '.join(bear_syms) or 'none'}\n"
+        + "\n".join([
+            f"  {s}: {v['bullish_pct']:.0f}% bull / {v['bearish_pct']:.0f}% bear ({v['message_count']} msgs)"
+            for s, v in sorted(sentiment.items(), key=lambda x: x[1].get("message_count",0), reverse=True)[:8]
+        ])
+    )
+
+    # 7. Sentiment insights from Sonnet
+    sentiment_insights = []
+    sentiment_summary  = ""
+    try:
+        resp = ai_client.messages.create(
+            model=SONNET_MODEL, max_tokens=800,
+            system="Extract actionable trading insights from retail sentiment data. Output only valid JSON.",
+            messages=[{"role": "user", "content":
+                f"Extract 3-5 actionable trading insights from this retail sentiment data:\n\n{sentiment_context}\n\n"
+                f'Output JSON: {{"insights": [{{"finding": "...", "tickers": [], "edge": "...", "confidence": "high/medium/low", "source": "StockTwits/F&G", "actionable": "..."}}], "summary": "2-3 sentences"}}'
+            }]
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"): raw = raw.split("```")[1]; raw = raw[4:] if raw.startswith("json") else raw
+        result = json.loads(raw.strip())
+        sentiment_insights = result.get("insights", [])
+        sentiment_summary  = result.get("summary", "")
+    except Exception as e:
+        log(f"Sentiment insights error: {e}", "WARN")
+
+    # 8. Fed + Earnings insights from Sonnet
+    fed_earnings_result = summarize_fed_and_earnings(fed_speeches, earnings)
+    fed_insights = fed_earnings_result.get("insights", [])
+    fed_summary  = fed_earnings_result.get("summary", "")
+
+    # Combine all insights
+    all_insights = sentiment_insights + fed_insights
 
     # Save digest
     digest = {
         "updated_at":      datetime.now(ET).isoformat(),
-        "source":          "StockTwits + CNN Fear & Greed",
+        "source":          "StockTwits + CNN Fear & Greed + Fed + Earnings",
         "fear_greed":      fg,
         "trending":        trending[:15],
         "sentiment":       sentiment,
         "bull_tickers":    bull_syms,
         "bear_tickers":    bear_syms,
-        "insights":        insights,
-        "summary":         summary,
+        "fed_speeches":    [{"title": s["title"], "speaker": s["speaker"], "url": s["url"]} for s in fed_speeches],
+        "earnings":        [{"symbol": e["symbol"], "url": e["url"]} for e in earnings],
+        "insights":        all_insights,
+        "summary":         f"{sentiment_summary} {fed_summary}".strip(),
     }
     digest_file = STATE_DIR / "research_digest.json"
     digest_file.write_text(json.dumps(digest, indent=2))
-    log("Research digest saved")
+    log(f"Research digest saved: {len(all_insights)} total insights ({len(sentiment_insights)} sentiment, {len(fed_insights)} Fed/earnings)")
 
-    # Telegram alert
+    # Telegram summary
     fg_emoji = "🟢" if fg["score"] >= 60 else "🔴" if fg["score"] <= 40 else "🟡"
-    findings_txt = "\n".join([f"• {i['finding'][:100]}" for i in insights[:4]])
+    findings_txt = "\n".join([f"• {i['finding'][:100]} ({i.get('source','')})" for i in all_insights[:5]])
+    fed_str = f"\nFed: {', '.join(s['speaker'] for s in fed_speeches[:2])}" if fed_speeches else ""
+    earn_str = f"\nEarnings: {', '.join(e['symbol'] for e in earnings[:5])}" if earnings else ""
     _tg(
         f"📚 *Weekly Research Digest*\n\n"
         f"{fg_emoji} *Fear & Greed: {fg['score']:.0f}/100* ({fg['rating'].replace('_',' ').title()}) "
-        f"{fg['change']:+.1f} from yesterday\n\n"
-        f"*Retail trending:* {', '.join(trending[:8])}\n"
+        f"{fg['change']:+.1f} from yesterday\n"
+        f"*Retail trending:* {', '.join(trending[:8])}"
+        f"{fed_str}{earn_str}\n\n"
         f"*Bullish crowd:* {', '.join(bull_syms[:5]) or 'none'}\n"
         f"*Bearish crowd:* {', '.join(bear_syms[:5]) or 'none'}\n\n"
-        f"*Key insights:*\n{findings_txt}\n\n"
-        f"_{summary[:200]}_"
+        f"*Key insights:*\n{findings_txt}"
     )
     return digest
+
 
 
 def load_research_digest() -> str:
@@ -1142,80 +1329,6 @@ def extract_trading_insights(posts: list) -> dict:
         log(f"Insight extraction error: {e}", "ERROR")
         return {}
 
-
-def run_research_digest() -> dict:
-    """
-    Full research pipeline — runs weekly on Sundays.
-    1. Pull top research posts via public Reddit JSON
-    2. Extract insights with Sonnet
-    3. Save to research_digest.json
-    4. Send Telegram summary
-    """
-    log("Running weekly research digest...")
-
-    posts = fetch_reddit_research_posts()
-    if not posts:
-        log("No research posts found this week")
-        return {}
-
-    insights = extract_trading_insights(posts)
-    if not insights:
-        return {}
-
-    digest = {
-        "updated_at":      datetime.now(ET).isoformat(),
-        "posts_analyzed":  len(posts),
-        "insights":        insights.get("insights", []),
-        "summary":         insights.get("summary", ""),
-        "sources": [
-            {"title": p["title"], "url": p["url"], "score": p["score"],
-             "subreddit": p["subreddit"]}
-            for p in posts[:10]
-        ],
-    }
-
-    digest_file = STATE_DIR / "research_digest.json"
-    digest_file.write_text(json.dumps(digest, indent=2))
-    log(f"Research digest saved: {len(digest['insights'])} insights")
-
-    # Telegram summary
-    findings     = digest["insights"][:5]
-    findings_txt = "\n".join([
-        f"• {f['finding'][:120]} ({f['confidence']})"
-        for f in findings
-    ])
-    _tg(
-        f"📚 *Weekly Research Digest*\n"
-        f"Analyzed {len(posts)} posts across {len(RESEARCH_SUBREDDITS)} subreddits\n\n"
-        f"*Key findings:*\n{findings_txt}\n\n"
-        f"_{digest['summary'][:300]}_"
-    )
-    return digest
-
-
-def load_research_digest() -> str:
-    """Load research digest as context string for AI brain."""
-    digest_file = STATE_DIR / "research_digest.json"
-    if not digest_file.exists():
-        return ""
-    try:
-        digest  = json.loads(digest_file.read_text())
-        updated = digest.get("updated_at", "")[:10]
-        items   = digest.get("insights", [])
-        if not items:
-            return ""
-        lines = [f"=== COMMUNITY RESEARCH ({updated}) ==="]
-        for i in items[:8]:
-            lines.append(
-                f"• {i['finding']}"
-                + (f" [{','.join(i.get('tickers',[]))}]" if i.get("tickers") else "")
-                + f" — {i.get('edge','')} [{i.get('confidence','')}]"
-            )
-        lines.append(f"Summary: {digest.get('summary','')}")
-        return "\n".join(lines)
-    except Exception as e:
-        log(f"Research digest load error: {e}", "WARN")
-        return ""
 
 
 def fetch_reddit_mentions(symbols: list) -> dict:
