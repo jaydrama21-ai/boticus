@@ -2997,7 +2997,7 @@ def commit_state_to_github():
             b64_content = base64.b64encode(content).decode()
             repo_path   = f"bot_state/{filename}"
 
-            # Get current SHA if file exists
+            # Always fetch fresh SHA (never use cached — causes 409 conflicts)
             sha = None
             r = requests.get(f"{api_base}/{repo_path}", headers=headers, timeout=10)
             log(f"  SHA check {filename}: {r.status_code}")
@@ -3015,9 +3015,23 @@ def commit_state_to_github():
             r = requests.put(f"{api_base}/{repo_path}", headers=headers,
                              json=payload, timeout=15)
             log(f"  Commit {filename}: {r.status_code}")
+
             if r.status_code in (200, 201):
                 committed += 1
                 log(f"  ✅ Committed {filename} to repo")
+            elif r.status_code == 409:
+                # SHA conflict — fetch fresh SHA and retry once
+                log(f"  SHA conflict on {filename} — retrying with fresh SHA", "WARN")
+                r2 = requests.get(f"{api_base}/{repo_path}", headers=headers, timeout=10)
+                if r2.status_code == 200:
+                    payload["sha"] = r2.json().get("sha")
+                    r3 = requests.put(f"{api_base}/{repo_path}", headers=headers,
+                                      json=payload, timeout=15)
+                    if r3.status_code in (200, 201):
+                        committed += 1
+                        log(f"  ✅ Committed {filename} (retry)")
+                    else:
+                        log(f"  ❌ Commit failed {filename} (retry): {r3.status_code}", "WARN")
             else:
                 log(f"  ❌ Commit failed {filename}: {r.status_code} — {r.text[:150]}", "WARN")
         except Exception as e:
