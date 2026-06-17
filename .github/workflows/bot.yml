@@ -1,4 +1,4 @@
-name: Trading Bot
+name: Boticus Trading Bot
 
 on:
   schedule:
@@ -13,13 +13,27 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'scan | review | status | backtest | auto_adjust | dashboard | research'
-        required: false
+        description: 'Run mode'
+        required: true
         default: 'scan'
+        type: choice
+        options:
+          - scan
+          - status
+          - research
+          - backtest
+          - auto_adjust
+          - review
+          - dashboard
       backtest_days:
-        description: 'Days of history for backtest (default 180)'
+        description: 'Backtest lookback (days)'
         required: false
         default: '180'
+        type: choice
+        options:
+          - '90'
+          - '180'
+          - '365'
 
 jobs:
   run-bot:
@@ -51,7 +65,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run trading bot
+      - name: Run bot
         env:
           ALPACA_API_KEY:      ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY:   ${{ secrets.ALPACA_SECRET_KEY }}
