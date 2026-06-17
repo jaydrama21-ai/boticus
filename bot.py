@@ -746,9 +746,17 @@ def score_headlines(headlines: list, symbol: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 REDDIT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; boticus-research/1.0)",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
 }
+
+# Fallback user agents to rotate if blocked
+REDDIT_UA_LIST = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/118.0.0.0 Safari/537.36",
+]
 
 RESEARCH_SUBREDDITS = [
     "options",
@@ -772,55 +780,73 @@ RESEARCH_INDICATORS = [
 def fetch_reddit_research_posts(limit_per_sub: int = 10) -> list:
     """
     Pull top posts from research subreddits using public JSON.
-    No auth, no credentials, works immediately.
-    Filters for posts that contain actual research/data keywords.
+    Rotates user agents and tries multiple URL formats to avoid 403s.
     """
+    import random
     all_posts = []
 
     for sub in RESEARCH_SUBREDDITS:
         for sort in ["top", "hot"]:
-            try:
-                url = f"https://old.reddit.com/r/{sub}/{sort}.json"
-                r   = requests.get(
-                    url,
-                    headers=REDDIT_HEADERS,
-                    params={"limit": limit_per_sub, "t": "week"},
-                    timeout=10
-                )
-                if not r.ok:
-                    log(f"  Reddit r/{sub}/{sort}: HTTP {r.status_code}", "WARN")
-                    continue
+            # Try different URL formats
+            urls = [
+                f"https://www.reddit.com/r/{sub}/{sort}.json",
+                f"https://old.reddit.com/r/{sub}/{sort}.json",
+            ]
+            success = False
+            for url in urls:
+                if success: break
+                try:
+                    headers = {
+                        "User-Agent": random.choice(REDDIT_UA_LIST),
+                        "Accept": "application/json",
+                    }
+                    r = requests.get(
+                        url, headers=headers,
+                        params={"limit": limit_per_sub, "t": "week"},
+                        timeout=12
+                    )
+                    if r.status_code == 403:
+                        log(f"  Reddit r/{sub}/{sort}: HTTP 403 — trying next URL", "WARN")
+                        time.sleep(2)
+                        continue
+                    if not r.ok:
+                        log(f"  Reddit r/{sub}/{sort}: HTTP {r.status_code}", "WARN")
+                        continue
 
-                posts = r.json().get("data", {}).get("children", [])
-                for post in posts:
-                    d     = post.get("data", {})
-                    title = d.get("title", "")
-                    body  = d.get("selftext", "")
-                    score = d.get("score", 0)
-                    url_p = f"https://reddit.com{d.get('permalink','')}"
+                    posts = r.json().get("data", {}).get("children", [])
+                    found = 0
+                    for post in posts:
+                        d     = post.get("data", {})
+                        title = d.get("title", "")
+                        body  = d.get("selftext", "")
+                        score = d.get("score", 0)
+                        url_p = f"https://reddit.com{d.get('permalink','')}"
 
-                    # Filter: must have research keywords + minimum upvotes
-                    text_lower   = (title + " " + body).lower()
-                    is_research  = any(kw in text_lower for kw in RESEARCH_INDICATORS)
-                    has_traction = score >= 15
-                    not_removed  = body not in ("[removed]", "[deleted]", "")
+                        text_lower   = (title + " " + body).lower()
+                        is_research  = any(kw in text_lower for kw in RESEARCH_INDICATORS)
+                        has_traction = score >= 15
+                        not_removed  = body not in ("[removed]", "[deleted]", "")
 
-                    if is_research and has_traction and not_removed:
-                        all_posts.append({
-                            "subreddit": sub,
-                            "title":     title[:200],
-                            "body":      body[:3000],
-                            "score":     score,
-                            "url":       url_p,
-                            "created":   d.get("created_utc", 0),
-                        })
+                        if is_research and has_traction and not_removed:
+                            all_posts.append({
+                                "subreddit": sub,
+                                "title":     title[:200],
+                                "body":      body[:3000],
+                                "score":     score,
+                                "url":       url_p,
+                                "created":   d.get("created_utc", 0),
+                            })
+                            found += 1
 
-            except Exception as e:
-                log(f"  Reddit r/{sub}/{sort}: {e}", "WARN")
+                    if found >= 0:  # Even 0 results = successful fetch
+                        success = True
+                        log(f"  Reddit r/{sub}/{sort}: {found} research posts")
 
-            time.sleep(1)  # Be polite — avoid rate limiting
+                except Exception as e:
+                    log(f"  Reddit r/{sub}/{sort}: {e}", "WARN")
 
-    # Deduplicate by title, sort by score
+            time.sleep(1.5)
+
     seen    = set()
     unique  = []
     for p in sorted(all_posts, key=lambda x: x["score"], reverse=True):
@@ -2423,17 +2449,26 @@ def main():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _tg(text: str):
-    """Send a message to Telegram. Logs response for debugging."""
+    """Send a Telegram message. Escapes problematic characters to avoid parse errors."""
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         log("Telegram: skipped — token or chat_id missing", "WARN")
         return
     try:
+        # Try with Markdown first
         resp = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={"chat_id": TELEGRAM_CHAT_ID, "text": text,
                   "parse_mode": "Markdown"},
             timeout=8
         )
+        if resp.status_code == 400 and "parse" in resp.text.lower():
+            # Markdown failed — strip formatting and send as plain text
+            clean = text.replace("*","").replace("_","").replace("`","").replace("[","").replace("]","")
+            resp = requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": clean},
+                timeout=8
+            )
         log(f"Telegram response: {resp.status_code} — {resp.text[:150]}")
     except Exception as e:
         log(f"Telegram error: {e}", "WARN")
@@ -3566,7 +3601,7 @@ def generate_dashboard():
             headers = {
                 "Authorization": f"Bearer {GITHUB_TOKEN}",
                 "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2026-11-28",
+                "X-GitHub-Api-Version": "2022-11-28",
             }
             b64 = base64.b64encode(dash_file.read_bytes()).decode()
             # Get existing SHA if file exists
