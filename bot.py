@@ -516,9 +516,10 @@ class MacroData:
         self.upcoming_events = []
         self.futures_sentiment = "NEUTRAL"
         self.risk_score = 0
-        self.reddit_mentions = {}    # symbol -> mention data
+        self.reddit_mentions = {}    # symbol -> mention data (now StockTwits)
         self.sector_rotation = {}    # sector -> rotation data
         self.unusual_volume  = []    # list of unusual volume symbols
+        self.fear_greed      = {"score": 50, "rating": "neutral", "change": 0}  # CNN F&G
 
 tickers: dict[str, TickerData] = {}
 macro = MacroData()
@@ -758,26 +759,258 @@ REDDIT_UA_LIST = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/118.0.0.0 Safari/537.36",
 ]
 
-RESEARCH_SUBREDDITS = [
-    "options",
-    "algotrading",
-    "quant",
-    "stocks",
-    "wallstreetbets",
-    "investing",
-    "SecurityAnalysis",
-]
+RESEARCH_SUBREDDITS = []  # Kept for reference, no longer used
 
-RESEARCH_INDICATORS = [
-    "backtest", "study", "research", "data", "results", "tested",
-    "strategy", "win rate", "return", "sharpe", "drawdown", "signals",
-    "statistical", "significant", "sample size", "historical", "analysis",
-    "found that", "shows that", "performance", "edge", "alpha",
-    "i tested", "i backtested", "i ran", "i studied", "we found",
-    "the data shows", "after testing", "over x years", "out of sample",
-]
+# ══════════════════════════════════════════════════════════════════════════════
+# STOCKTWITS SENTIMENT — ticker-specific retail sentiment, free, no auth
+# Replaces Reddit which blocks GitHub Actions IPs
+# ══════════════════════════════════════════════════════════════════════════════
 
-def fetch_reddit_research_posts(limit_per_sub: int = 10) -> list:
+def fetch_stocktwits_sentiment(symbols: list) -> dict:
+    """
+    Pull real-time retail sentiment from StockTwits for each ticker.
+    Free public API — no auth, no IP blocking.
+    Returns dict of symbol -> {bullish_pct, bearish_pct, message_count, trending}
+    """
+    results = {}
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; boticus/1.0)"}
+
+    for sym in symbols[:20]:  # Limit to avoid rate limiting
+        try:
+            r = requests.get(
+                f"https://api.stocktwits.com/api/2/streams/symbol/{sym}.json",
+                headers=headers,
+                timeout=8
+            )
+            if not r.ok:
+                continue
+
+            data     = r.json()
+            messages = data.get("messages", [])
+            symbol_d = data.get("symbol", {})
+
+            if not messages:
+                continue
+
+            # Count sentiment from message entities
+            bullish = sum(1 for m in messages
+                         if m.get("entities", {}).get("sentiment", {}).get("basic") == "Bullish")
+            bearish = sum(1 for m in messages
+                         if m.get("entities", {}).get("sentiment", {}).get("basic") == "Bearish")
+            total   = len(messages)
+            bull_pct = bullish / total * 100 if total else 50
+            bear_pct = bearish / total * 100 if total else 50
+
+            # Watchlist count = how many StockTwits users watching
+            watchers  = symbol_d.get("watchlist_count", 0)
+            trending  = total >= 10 and (bull_pct >= 70 or bear_pct >= 70)
+
+            results[sym] = {
+                "bullish_pct":  round(bull_pct, 1),
+                "bearish_pct":  round(bear_pct, 1),
+                "message_count": total,
+                "watchers":     watchers,
+                "trending":     trending,
+                "sentiment":    "bullish" if bull_pct > 60 else "bearish" if bear_pct > 60 else "neutral",
+            }
+
+            if trending or bull_pct >= 70 or bear_pct >= 70:
+                log(f"  StockTwits {sym}: {bull_pct:.0f}% bull / {bear_pct:.0f}% bear "
+                    f"({total} msgs) {'🔥 TRENDING' if trending else ''}")
+
+        except Exception as e:
+            pass  # Silent — not critical
+        time.sleep(0.3)
+
+    return results
+
+
+def fetch_fear_greed() -> dict:
+    """
+    Pull CNN Fear & Greed Index — free, no auth, works from any IP.
+    Returns current score (0=extreme fear, 100=extreme greed) and rating.
+    Useful as market-wide sentiment overlay for signal scoring.
+    """
+    try:
+        r = requests.get(
+            "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+            headers={"User-Agent": "Mozilla/5.0 (compatible; boticus/1.0)",
+                     "Referer": "https://edition.cnn.com/"},
+            timeout=10
+        )
+        if r.ok:
+            data  = r.json()
+            score = data.get("fear_and_greed", {}).get("score", 50)
+            rating = data.get("fear_and_greed", {}).get("rating", "neutral")
+            prev  = data.get("fear_and_greed_historical", {}).get("previous_close", {}).get("score", score)
+            change = score - prev
+
+            result = {
+                "score":   round(float(score), 1),
+                "rating":  rating,  # extreme_fear, fear, neutral, greed, extreme_greed
+                "change":  round(float(change), 1),
+                "bullish": score >= 60,
+                "bearish": score <= 40,
+            }
+            log(f"  Fear & Greed: {score:.0f} ({rating}) {change:+.1f} from yesterday")
+            return result
+    except Exception as e:
+        log(f"  Fear & Greed fetch error: {e}", "WARN")
+    return {"score": 50, "rating": "neutral", "change": 0, "bullish": False, "bearish": False}
+
+
+def fetch_stocktwits_trending() -> list:
+    """
+    Pull StockTwits trending tickers — what retail is talking about right now.
+    Returns list of trending symbols to potentially add to watchlist.
+    """
+    try:
+        r = requests.get(
+            "https://api.stocktwits.com/api/2/trending/symbols.json",
+            headers={"User-Agent": "Mozilla/5.0 (compatible; boticus/1.0)"},
+            timeout=8
+        )
+        if r.ok:
+            symbols = r.json().get("symbols", [])
+            tickers = [s["symbol"] for s in symbols[:15] if s.get("symbol")]
+            log(f"  StockTwits trending: {', '.join(tickers[:10])}")
+            return tickers
+    except Exception as e:
+        log(f"  StockTwits trending error: {e}", "WARN")
+    return []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RESEARCH DIGEST — weekly intelligence summary
+# StockTwits sentiment + Fear & Greed + Unusual options activity
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_research_digest() -> dict:
+    """
+    Weekly intelligence digest — runs Sundays.
+    1. Fear & Greed Index — overall market mood
+    2. StockTwits trending — what retail is chasing
+    3. StockTwits sentiment on core watchlist
+    4. Summarize with Sonnet → save to research_digest.json
+    5. Send Telegram summary
+    """
+    log("Running weekly research digest (StockTwits + Fear & Greed)...")
+
+    # 1. Market mood
+    fg = fetch_fear_greed()
+
+    # 2. Trending tickers
+    trending = fetch_stocktwits_trending()
+
+    # 3. Sentiment on core watchlist
+    core_syms = CORE_WATCHLIST[:20]
+    sentiment = fetch_stocktwits_sentiment(core_syms)
+
+    # Build summary for Sonnet
+    bull_syms = [s for s, v in sentiment.items() if v.get("bullish_pct", 50) >= 65]
+    bear_syms = [s for s, v in sentiment.items() if v.get("bearish_pct", 50) >= 65]
+
+    context = (
+        f"Fear & Greed Index: {fg['score']:.0f}/100 ({fg['rating']}) — "
+        f"{'markets greedy, possible overextension' if fg['score'] >= 70 else 'markets fearful, possible opportunity' if fg['score'] <= 30 else 'neutral sentiment'}\n"
+        f"Change from yesterday: {fg['change']:+.1f} points\n\n"
+        f"StockTwits trending tickers this week: {', '.join(trending[:10])}\n\n"
+        f"Heavily bullish sentiment (65%+ bull): {', '.join(bull_syms) or 'none'}\n"
+        f"Heavily bearish sentiment (65%+ bear): {', '.join(bear_syms) or 'none'}\n\n"
+        f"Detailed sentiment:\n"
+        + "\n".join([
+            f"  {s}: {v['bullish_pct']:.0f}% bull / {v['bearish_pct']:.0f}% bear ({v['message_count']} msgs)"
+            for s, v in sorted(sentiment.items(), key=lambda x: x[1].get("message_count",0), reverse=True)[:10]
+        ])
+    )
+
+    # Sonnet extraction
+    insights = []
+    summary  = ""
+    try:
+        resp = ai_client.messages.create(
+            model=SONNET_MODEL, max_tokens=1000,
+            system="Extract actionable trading insights from retail sentiment data. Output only valid JSON.",
+            messages=[{"role": "user", "content":
+                f"Based on this retail sentiment data, extract 3-5 actionable trading insights:\n\n{context}\n\n"
+                f'Output JSON: {{"insights": [{{"finding": "...", "tickers": [], "edge": "...", "confidence": "high/medium/low", "actionable": "..."}}], "summary": "2-3 sentences"}}'
+            }]
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"): raw = raw.split("```")[1]; raw = raw[4:] if raw.startswith("json") else raw
+        result   = json.loads(raw.strip())
+        insights = result.get("insights", [])
+        summary  = result.get("summary", "")
+        log(f"Research digest: extracted {len(insights)} insights")
+    except Exception as e:
+        log(f"Digest extraction error: {e}", "WARN")
+        summary = f"F&G: {fg['score']:.0f} ({fg['rating']}). Trending: {', '.join(trending[:5])}."
+
+    # Save digest
+    digest = {
+        "updated_at":      datetime.now(ET).isoformat(),
+        "source":          "StockTwits + CNN Fear & Greed",
+        "fear_greed":      fg,
+        "trending":        trending[:15],
+        "sentiment":       sentiment,
+        "bull_tickers":    bull_syms,
+        "bear_tickers":    bear_syms,
+        "insights":        insights,
+        "summary":         summary,
+    }
+    digest_file = STATE_DIR / "research_digest.json"
+    digest_file.write_text(json.dumps(digest, indent=2))
+    log("Research digest saved")
+
+    # Telegram alert
+    fg_emoji = "🟢" if fg["score"] >= 60 else "🔴" if fg["score"] <= 40 else "🟡"
+    findings_txt = "\n".join([f"• {i['finding'][:100]}" for i in insights[:4]])
+    _tg(
+        f"📚 *Weekly Research Digest*\n\n"
+        f"{fg_emoji} *Fear & Greed: {fg['score']:.0f}/100* ({fg['rating'].replace('_',' ').title()}) "
+        f"{fg['change']:+.1f} from yesterday\n\n"
+        f"*Retail trending:* {', '.join(trending[:8])}\n"
+        f"*Bullish crowd:* {', '.join(bull_syms[:5]) or 'none'}\n"
+        f"*Bearish crowd:* {', '.join(bear_syms[:5]) or 'none'}\n\n"
+        f"*Key insights:*\n{findings_txt}\n\n"
+        f"_{summary[:200]}_"
+    )
+    return digest
+
+
+def load_research_digest() -> str:
+    """Load digest as AI brain context string."""
+    digest_file = STATE_DIR / "research_digest.json"
+    if not digest_file.exists():
+        return ""
+    try:
+        digest  = json.loads(digest_file.read_text())
+        updated = digest.get("updated_at", "")[:10]
+        fg      = digest.get("fear_greed", {})
+        items   = digest.get("insights", [])
+        bull    = digest.get("bull_tickers", [])
+        bear    = digest.get("bear_tickers", [])
+        trend   = digest.get("trending", [])
+
+        lines = [f"=== RETAIL SENTIMENT ({updated}) ==="]
+        lines.append(f"Fear & Greed: {fg.get('score',50):.0f}/100 ({fg.get('rating','neutral')}) — "
+                     f"{'risk-on bias' if fg.get('score',50) >= 60 else 'risk-off bias' if fg.get('score',50) <= 40 else 'neutral'}")
+        if trend:
+            lines.append(f"Retail trending: {', '.join(trend[:8])}")
+        if bull:
+            lines.append(f"Heavy retail bullishness: {', '.join(bull[:5])} — potential exhaustion risk")
+        if bear:
+            lines.append(f"Heavy retail bearishness: {', '.join(bear[:5])} — potential squeeze candidate")
+        for i in items[:5]:
+            lines.append(f"• {i.get('finding','')} [{i.get('confidence','')}]")
+        lines.append(f"Summary: {digest.get('summary','')}")
+        return "\n".join(lines)
+    except Exception as e:
+        log(f"Research digest load error: {e}", "WARN")
+        return ""
+
+
+def fetch_reddit_mentions(symbols: list) -> dict:
     """
     Pull top posts from research subreddits using public JSON.
     Rotates user agents and tries multiple URL formats to avoid 403s.
@@ -987,44 +1220,22 @@ def load_research_digest() -> str:
 
 def fetch_reddit_mentions(symbols: list) -> dict:
     """
-    Pull Reddit mentions from r/wallstreetbets and r/stocks.
-    Returns dict of symbol -> {mentions, bullish, bearish, trending}.
-    Free, no auth needed.
+    Now uses StockTwits instead of Reddit (Reddit blocks GitHub Actions IPs).
+    Returns same dict format for compatibility with existing signal scoring.
     """
-    mentions = {s: {"mentions": 0, "bullish": 0, "bearish": 0, "trending": False}
-                for s in symbols}
-    bull_kw = ["calls","bull","long","buy","moon","breakout","squeeze","beat","upgrade"]
-    bear_kw = ["puts","bear","short","sell","crash","drop","miss","downgrade","dump"]
-
-    for sub in ["wallstreetbets", "stocks", "options", "investing"]:
-        for sort in ["hot", "new"]:
-            try:
-                r = requests.get(
-                    f"https://www.reddit.com/r/{sub}/{sort}.json?limit=25",
-                    headers={"User-Agent": "boticus-sentiment/1.0"},
-                    timeout=8
-                )
-                if r.status_code != 200:
-                    continue
-                posts = r.json().get("data", {}).get("children", [])
-                for post in posts:
-                    text = (post["data"].get("title","") + " " +
-                            post["data"].get("selftext","")[:200]).lower()
-                    for sym in symbols:
-                        if re.search(r'\b' + sym.lower() + r'\b', text):
-                            mentions[sym]["mentions"] += 1
-                            mentions[sym]["bullish"] += sum(1 for k in bull_kw if k in text)
-                            mentions[sym]["bearish"] += sum(1 for k in bear_kw if k in text)
-            except: pass
-        time.sleep(0.3)
-
-    # Flag trending — mentioned 3+ times
-    for sym in mentions:
-        if mentions[sym]["mentions"] >= 3:
-            mentions[sym]["trending"] = True
-            log(f"  Reddit trending: {sym} ({mentions[sym]['mentions']} mentions, "
-                f"bull:{mentions[sym]['bullish']} bear:{mentions[sym]['bearish']})")
-
+    st = fetch_stocktwits_sentiment(symbols[:15])
+    mentions = {}
+    for sym in symbols:
+        if sym in st:
+            v = st[sym]
+            mentions[sym] = {
+                "mentions": v["message_count"],
+                "bullish":  int(v["bullish_pct"] / 10),
+                "bearish":  int(v["bearish_pct"] / 10),
+                "trending": v["trending"],
+            }
+        else:
+            mentions[sym] = {"mentions": 0, "bullish": 0, "bearish": 0, "trending": False}
     return mentions
 
 
@@ -1225,12 +1436,26 @@ def fetch_macro():
         events = [e for e,f in [("FOMC",macro.fomc_24h),("CPI",macro.cpi_24h),("Jobs",macro.jobs_24h)] if f]
         log(f"  ⚠️  HIGH-IMPACT EVENT TODAY: {events}", "WARN")
 
-    # Reddit sentiment (runs after price data is loaded)
-    log("  Scanning Reddit sentiment...")
+    # StockTwits sentiment (replaces Reddit — no IP blocking)
+    log("  Scanning StockTwits sentiment...")
     try:
         macro.reddit_mentions = fetch_reddit_mentions(get_watchlist())
     except Exception as e:
-        log(f"  Reddit error: {e}", "WARN")
+        log(f"  StockTwits error: {e}", "WARN")
+
+    # Fear & Greed Index — market-wide mood
+    try:
+        macro.fear_greed = fetch_fear_greed()
+        fg = macro.fear_greed
+        # Adjust risk score based on extreme sentiment
+        if fg["score"] >= 80:
+            macro.risk_score = max(macro.risk_score - 1, -3)  # Extreme greed = caution
+            log(f"  ⚠️  Extreme greed ({fg['score']:.0f}) — reducing risk score")
+        elif fg["score"] <= 20:
+            macro.risk_score = min(macro.risk_score + 1, 3)   # Extreme fear = opportunity
+            log(f"  ⚠️  Extreme fear ({fg['score']:.0f}) — potential opportunity")
+    except Exception as e:
+        log(f"  Fear & Greed error: {e}", "WARN")
 
     # Sector rotation
     macro.sector_rotation = fetch_sector_rotation()
@@ -2550,12 +2775,14 @@ def alert_weekly_summary(review: str, stats: dict):
 
 def send_startup_ping():
     mode = "PAPER" if PAPER_MODE else "🚨 LIVE"
+    fg   = macro.fear_greed
+    fg_str = f"F&G: {fg['score']:.0f} ({fg['rating'].replace('_',' ').title()})"
     dash = f"\n🔗 [Dashboard]({DASHBOARD_URL})" if DASHBOARD_URL else ""
     _tg(
         f"🤖 *Boticus started [{mode}]*\n"
         f"Session: {get_market_session()}  |  "
         f"VIX: {macro.vix:.1f}  |  Regime: {macro.market_regime}\n"
-        f"Watchlist: {len(get_watchlist())} tickers"
+        f"{fg_str}  |  Watchlist: {len(get_watchlist())} tickers"
         f"{dash}"
     )
 
