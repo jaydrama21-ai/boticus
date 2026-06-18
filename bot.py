@@ -1641,6 +1641,71 @@ def build_context(symbol=None) -> str:
 # SIGNAL ENGINE
 # ══════════════════════════════════════════════════════════════════════════════
 
+def get_1h_confirmation(symbol: str, direction: str) -> tuple[bool, str]:
+    """
+    Multi-timeframe confirmation — checks 1H chart agrees with daily signal.
+    Returns (confirmed: bool, reason: str).
+    Requires 1H RSI and trend to align with daily direction.
+    """
+    try:
+        ticker = yf.Ticker(symbol)
+        hist_1h = ticker.history(period="5d", interval="1h")
+        if hist_1h.empty or len(hist_1h) < 20:
+            return True, "1H data unavailable — skipping MTF check"
+
+        closes_1h  = hist_1h["Close"].values
+        price_1h   = float(closes_1h[-1])
+        sma20_1h   = float(np.mean(closes_1h[-20:]))
+        sma8_1h    = float(np.mean(closes_1h[-8:]))
+        rsi_1h     = calc_rsi(closes_1h)
+
+        if direction == "long":
+            trend_ok = price_1h > sma8_1h > sma20_1h or price_1h > sma20_1h
+            rsi_ok   = 45 <= rsi_1h <= 75
+            if not trend_ok:
+                return False, f"1H trend bearish (price ${price_1h:.2f} vs SMA20 ${sma20_1h:.2f})"
+            if not rsi_ok:
+                return False, f"1H RSI out of range ({rsi_1h:.1f})"
+            return True, f"1H confirmed: RSI {rsi_1h:.1f}, above SMA20"
+        else:
+            trend_ok = price_1h < sma8_1h or price_1h < sma20_1h
+            rsi_ok   = rsi_1h <= 60 or rsi_1h >= 70
+            if not trend_ok:
+                return False, f"1H trend bullish — short not confirmed"
+            return True, f"1H short confirmed: RSI {rsi_1h:.1f}"
+
+    except Exception as e:
+        return True, f"1H check error ({e}) — skipping"
+
+
+def is_good_trading_time() -> tuple[bool, str]:
+    """
+    Time-of-day filter — blocks signals during high-noise periods.
+    Best signals develop 10:00 AM - 3:30 PM ET.
+    First 30 min: algos settling, wide spreads, fake breakouts.
+    Last 30 min: EOD positioning, forced closes, erratic moves.
+    """
+    now = datetime.now(ET)
+    h, m = now.hour, now.minute
+    total_mins = h * 60 + m
+
+    open_mins  = 9 * 60 + 30   # 9:30 AM
+    buffer_end = 10 * 60 + 0   # 10:00 AM (30 min buffer after open)
+    eod_start  = 15 * 60 + 30  # 3:30 PM (30 min before close)
+    close_mins = 16 * 60 + 0   # 4:00 PM
+
+    if total_mins < open_mins:
+        return False, "Pre-market — not scanning for new entries"
+    if open_mins <= total_mins < buffer_end:
+        return False, f"Opening 30 min buffer — waiting until 10:00 AM (now {now.strftime('%H:%M')} ET)"
+    if eod_start <= total_mins < close_mins:
+        return False, f"EOD 30 min window — no new entries after 3:30 PM (now {now.strftime('%H:%M')} ET)"
+    if total_mins >= close_mins:
+        return False, "Market closed"
+
+    return True, f"Good trading window ({now.strftime('%H:%M')} ET)"
+
+
 def scan_long(symbol) -> dict | None:
     t = tickers.get(symbol)
     if not t or t.price == 0: return None
@@ -1691,16 +1756,24 @@ def scan_long(symbol) -> dict | None:
                 atr_score*0.15 + mac_score*0.15 + hl_score*0.05 +
                 reddit_adj + sector_adj + unusual_adj)
     if criteria < 60: return None
+
+    # ── Multi-timeframe confirmation ──────────────────────────────────────────
+    mtf_ok, mtf_reason = get_1h_confirmation(symbol, "long")
+    if not mtf_ok:
+        log(f"  {symbol} LONG rejected: {mtf_reason}")
+        return None
+
     atr    = t.atr_14 or t.price * 0.015
     stop   = round(t.price - RISK["stop_loss_atr_mult"]   * atr, 2)
     target = round(t.price + RISK["take_profit_atr_mult"] * atr, 2)
     rr     = round((target - t.price) / (t.price - stop), 2) if t.price > stop else 0
     if rr < 1.5: return None
     notes = [f"Trend↑ {pct_above_50:.1%} above SMA50",
-             f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}"]
+             f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}",
+             mtf_reason]
     if t.headline_score > 20: notes.append(f"Headlines bullish ({t.headline_score:+.0f})")
     reddit_mentions = reddit.get("mentions", 0)
-    if reddit.get("trending"): notes.append(f"Reddit trending ({reddit_mentions} mentions)")
+    if reddit.get("trending"): notes.append(f"StockTwits trending ({reddit_mentions} msgs)")
     if is_unusual: notes.append(f"Unusual volume {t.vol_ratio:.1f}x")
     return {
         "symbol": symbol, "type": "stock_long", "direction": "long",
@@ -1721,20 +1794,16 @@ def scan_short(symbol) -> dict | None:
     if m.fomc_24h or m.cpi_24h or m.jobs_24h: return None
 
     # ── Regime gate — shorts only when macro supports them ─────────────────
-    # Bull market or ranging = no shorts (longs have the edge, don't fight it)
-    # Only activate shorts in confirmed downtrend or volatile/fear regimes
     if m.market_regime in ("trending_up", "ranging"):
         return None
     if m.market_regime == "unknown":
         return None
-    # Require at least mildly risk-off futures for shorts
     if macro.risk_score > -1:
         return None
-    # VIX must be at least elevated for short setups to have edge
     if m.vix_regime == "low":
         return None
 
-    if macro.risk_score >= 2: return None  # RISK-ON — no shorts
+    if macro.risk_score >= 2: return None
     confirmed_down = t.price < t.sma_50 < t.sma_200
     overbought_rev = t.rsi_14 > 72 and t.price > t.sma_50
     if not confirmed_down and not overbought_rev: return None
@@ -1759,6 +1828,13 @@ def scan_short(symbol) -> dict | None:
     criteria = (trend_score*0.25 + mom_score*0.20 + vol_score*0.20 +
                 atr_score*0.15 + mac_score*0.20)
     if criteria < 55: return None
+
+    # ── Multi-timeframe confirmation ──────────────────────────────────────────
+    mtf_ok, mtf_reason = get_1h_confirmation(symbol, "short")
+    if not mtf_ok:
+        log(f"  {symbol} SHORT rejected: {mtf_reason}")
+        return None
+
     atr    = t.atr_14 or t.price * 0.015
     stop   = round(t.price + RISK["stop_loss_atr_mult"]   * atr, 2)
     target = round(t.price - RISK["take_profit_atr_mult"] * atr, 2)
@@ -1769,11 +1845,19 @@ def scan_short(symbol) -> dict | None:
         "criteria": round(criteria, 1),
         "scores": {"trend": trend_score, "momentum": mom_score,
                    "volume": vol_score, "atr": atr_score, "macro": mac_score},
-        "notes": [f"Short RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}"],
+        "notes": [f"Short RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}",
+                  mtf_reason],
     }
 
 def scan_all() -> list:
     session = get_market_session()
+
+    # ── Time-of-day filter ────────────────────────────────────────────────
+    tod_ok, tod_reason = is_good_trading_time()
+    if not tod_ok:
+        log(f"Scan skipped: {tod_reason}")
+        return []
+
     log(f"Scanning {len(get_watchlist())} tickers | {session} | Regime:{macro.market_regime} | VIX:{macro.vix:.1f}")
     signals = []
     for sym in get_watchlist():
@@ -2613,9 +2697,16 @@ def main():
         bt   = run_backtest(lookback_days=days)
         if bt:
             run_auto_adjust(backtest=bt)
-        # Also run research digest on Sundays
+        # Also run recent regime comparison
+        run_recent_regime_backtest(days=60)
         if now.weekday() == 6:
             run_research_digest()
+        return
+
+    if mode == "recent_regime":
+        days = int(os.environ.get("BACKTEST_DAYS", "60"))
+        run_recent_regime_backtest(days=days)
+        commit_state_to_github()
         return
 
     # ── Auto-adjust only ───────────────────────────────────────────────────
@@ -2904,6 +2995,77 @@ def send_startup_ping():
 # BACKTESTING MODULE
 # Runs criteria against historical data to validate signal quality
 # ══════════════════════════════════════════════════════════════════════════════
+
+def run_recent_regime_backtest(days: int = 60) -> dict:
+    """
+    Recent-regime backtest — only uses last N days of data.
+    Compares win rate in THIS market vs the full 180-day historical average.
+    Critical for 2025-2026 which has unique characteristics:
+    - Trump tariff headlines moving markets 1-3% instantly
+    - AI narrative decoupling tech from broader market
+    - Faster VIX spikes and recoveries than historical norms
+    - Fed stuck between inflation and growth — high uncertainty
+    """
+    log(f"Running RECENT REGIME backtest: last {days} days only...")
+
+    # Run two backtests — recent and historical
+    recent  = run_backtest(lookback_days=days, notify=False)
+    full    = run_backtest(lookback_days=180, notify=False)
+
+    if not recent or not full:
+        log("Recent regime backtest: insufficient data", "WARN")
+        return {}
+
+    # Compare
+    wr_recent  = recent.get("win_rate", 0)
+    wr_full    = full.get("win_rate", 0)
+    wr_delta   = wr_recent - wr_full
+
+    exp_recent = recent.get("expectancy_pct", 0)
+    exp_full   = full.get("expectancy_pct", 0)
+
+    long_recent = recent.get("long_win_rate", 0)
+    long_full   = full.get("long_win_rate", 0)
+
+    # Regime characterization
+    if wr_recent > wr_full + 5:
+        regime_verdict = "IMPROVING — current market conditions favor our strategy"
+    elif wr_recent < wr_full - 5:
+        regime_verdict = "DEGRADING — current market conditions are harder for our strategy"
+    else:
+        regime_verdict = "STABLE — current market similar to historical performance"
+
+    result = {
+        "days_analyzed":   days,
+        "recent_win_rate": round(wr_recent, 1),
+        "full_win_rate":   round(wr_full, 1),
+        "win_rate_delta":  round(wr_delta, 1),
+        "recent_expectancy": round(exp_recent, 2),
+        "full_expectancy":   round(exp_full, 2),
+        "recent_long_wr":  round(long_recent, 1),
+        "full_long_wr":    round(long_full, 1),
+        "verdict":         regime_verdict,
+        "timestamp":       datetime.now(ET).isoformat(),
+    }
+
+    # Save
+    regime_file = STATE_DIR / "regime_comparison.json"
+    regime_file.write_text(json.dumps(result, indent=2))
+
+    # Telegram alert
+    delta_emoji = "📈" if wr_delta > 5 else "📉" if wr_delta < -5 else "➡️"
+    _tg(
+        f"🔬 *Recent Regime Analysis ({days}-day vs 180-day)*\n\n"
+        f"*Recent ({days}d):* {wr_recent:.1f}% WR | {exp_recent:+.2f}% expectancy\n"
+        f"*Historical (180d):* {wr_full:.1f}% WR | {exp_full:+.2f}% expectancy\n"
+        f"{delta_emoji} *Delta: {wr_delta:+.1f}% WR*\n\n"
+        f"*Verdict:* {regime_verdict}\n\n"
+        f"Long WR: {long_recent:.1f}% recent vs {long_full:.1f}% historical"
+    )
+
+    log(f"Recent regime: {wr_recent:.1f}% WR vs {wr_full:.1f}% historical ({wr_delta:+.1f}%)")
+    return result
+
 
 def run_backtest(symbols: list = None, lookback_days: int = 180,
                  notify: bool = True) -> dict:
