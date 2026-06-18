@@ -1506,13 +1506,21 @@ def fetch_macro():
     macro.vix_regime = ("low" if macro.vix < 15 else "normal" if macro.vix < 25
                         else "elevated" if macro.vix < 35 else "fear")
     # Regime
+    # ── Market regime detection ───────────────────────────────────────────
     spy = tickers.get("SPY")
-    if spy and spy.price > spy.sma_50 > spy.sma_200 and 50 <= spy.rsi_14 <= 70 and macro.vix < 25:
+    if spy and spy.price > spy.sma_50 > spy.sma_200:
+        # Uptrend structure confirmed — trending_up regardless of RSI/VIX
         macro.market_regime = "trending_up"
     elif spy and spy.price < spy.sma_50 < spy.sma_200:
         macro.market_regime = "trending_down"
-    elif macro.vix > 30: macro.market_regime = "volatile"
-    else: macro.market_regime = "ranging"
+    elif macro.vix > 30:
+        macro.market_regime = "volatile"
+    elif macro.risk_score >= 2:
+        # Futures strongly risk-on even if SPY structure is choppy
+        # Treat as trending_up for signal purposes
+        macro.market_regime = "trending_up"
+    else:
+        macro.market_regime = "ranging"
     # Events
     today   = date.today().isoformat()
     cutoff  = (date.today() + timedelta(days=1)).isoformat()
@@ -1734,14 +1742,14 @@ def scan_long(symbol) -> dict | None:
     atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
     # Macro — tightened
     mac_score = (100 if m.market_regime == "trending_up" else
-                 40  if m.market_regime == "ranging" else
+                 50  if m.market_regime == "ranging" else
                  40  if m.market_regime == "volatile" else 15)
-    if m.vix_regime == "fear":      mac_score -= 35
+    if m.vix_regime == "fear":       mac_score -= 35
     elif m.vix_regime == "elevated": mac_score -= 20
     if m.yield_curve < -0.5:         mac_score -= 10
     if mac_score < 30: return None
-    # Exclude ranging — auto-adjust confirmed ranging has lowest WR
-    if m.market_regime == "ranging": return None
+    # Ranging — allow only high-conviction setups (score must be 70+)
+    ranging_mode = m.market_regime == "ranging"
     # Headline + sentiment adjustments
     hl_score = max(0, min(100, 50 + t.headline_score / 2))
     reddit = m.reddit_mentions.get(symbol, {})
@@ -1755,7 +1763,9 @@ def scan_long(symbol) -> dict | None:
     criteria = (trend_score*0.25 + mom_score*0.20 + vol_score*0.20 +
                 atr_score*0.15 + mac_score*0.15 + hl_score*0.05 +
                 reddit_adj + sector_adj + unusual_adj)
-    if criteria < 60: return None
+    # In ranging markets require higher conviction
+    min_criteria = 70 if ranging_mode else 60
+    if criteria < min_criteria: return None
 
     # ── Multi-timeframe confirmation ──────────────────────────────────────────
     mtf_ok, mtf_reason = get_1h_confirmation(symbol, "long")
