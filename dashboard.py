@@ -125,6 +125,46 @@ hr { opacity: 0.15 !important; margin: 1.5rem 0 !important; }
 # Auto-refresh 5 min
 st.markdown("<script>setTimeout(()=>window.location.reload(),300000)</script>", unsafe_allow_html=True)
 
+# ── Next scan countdown ───────────────────────────────────────────────────────
+st.markdown("""
+<script>
+function updateCountdown() {
+    const now = new Date();
+    const etOffset = -5; // EST (adjust to -4 for EDT)
+    const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+    const et  = new Date(utc + (3600000 * etOffset));
+    const h = et.getHours(), m = et.getMinutes(), s = et.getSeconds();
+    const totalSecs = h * 3600 + m * 60 + s;
+    const marketOpen  = 9.5 * 3600;
+    const marketClose = 16  * 3600;
+    const isMarketHours = et.getDay() >= 1 && et.getDay() <= 5
+                          && totalSecs >= marketOpen && totalSecs < marketClose;
+
+    const el = document.getElementById('scan-countdown');
+    if (!el) return;
+
+    if (!isMarketHours) {
+        el.innerHTML = '🔴 Market closed — bot paused';
+        el.style.color = '#888';
+        return;
+    }
+
+    // Next 10-min boundary
+    const nextScan = (10 - (m % 10)) * 60 - s;
+    const mm = Math.floor(nextScan / 60);
+    const ss = nextScan % 60;
+    const urgent = nextScan <= 60;
+    el.innerHTML = `🟢 Market open · Next scan in <b>${mm}:${ss.toString().padStart(2,'0')}</b>`;
+    el.style.color = urgent ? '#22c55e' : '#aaa';
+}
+setInterval(updateCountdown, 1000);
+updateCountdown();
+</script>
+<div id="scan-countdown" style="font-size:13px;font-family:Inter,sans-serif;margin-bottom:8px">
+    Calculating next scan...
+</div>
+""", unsafe_allow_html=True)
+
 DATA_DIR = Path("bot_state")
 
 def load(f):
