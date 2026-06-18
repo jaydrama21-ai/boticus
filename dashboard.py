@@ -1,3 +1,4 @@
+
 import streamlit as st
 import json
 from pathlib import Path
@@ -409,7 +410,7 @@ with tab5:
 with tab6:
     log_path = DATA_DIR / "bot.log"
     if log_path.exists():
-        lines = log_path.read_text().strip().split("\\n")[-80:]
+        lines = log_path.read_text().strip().split("\n")[-80:]
         colored = []
         for line in lines:
             if "ERROR"      in line: colored.append(f"🔴 {line}")
@@ -424,7 +425,7 @@ with tab6:
             elif "MACRO"    in line: colored.append(f"🟣 {line}")
             elif "Watchlist"in line: colored.append(f"🗂 {line}")
             else:                    colored.append(f"   {line}")
-        st.code("\\n".join(colored), language="text")
+        st.code("\n".join(colored), language="text")
     else:
         st.markdown(bcard("No log file yet — bot hasn't run yet.", "info"), unsafe_allow_html=True)
 
@@ -583,3 +584,4 @@ with tab8:
                     st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ {item.strip()}")
                 else:
                     st.markdown(f"• {item}")
+
