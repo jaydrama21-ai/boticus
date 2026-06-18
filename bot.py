@@ -320,22 +320,22 @@ def update_dynamic_watchlist():
 WATCHLIST = property(get_watchlist) if False else CORE_WATCHLIST  # bootstrap
 
 # ── Risk config ────────────────────────────────────────────────────────────────
-# DATA COLLECTION MODE — generating trade data for pattern learning
-# Target: 30-50 closed trades then run auto_adjust for data-driven tightening
-# Current: RSI 52+, vol 1.3x, ranging allowed — enough to trade most days
+# Auto-adjusted (high confidence) 2026-06-18:
+# RSI 52→60, volume 1.3→1.5, take_profit 2.0→2.5, ranging excluded
+# Recent regime: STABLE (+0.2% delta) — long WR improving (35% recent vs 32.7% historical)
 RISK = {
     "stop_loss_atr_mult":    1.5,
-    "take_profit_atr_mult":  2.0,
+    "take_profit_atr_mult":  2.5,   # was 2.0 — let winners run longer
     "max_position_pct":      0.05,
     "max_risk_per_trade_pct":0.02,
     "max_daily_loss_pct":    0.02,
     "max_open_positions":    6,
-    "rsi_min":               52,    # loosened — catch more setups for data
+    "rsi_min":               60,    # was 52 — filter weak 40-60 RSI zone
     "rsi_max":               72,
-    "volume_min_mult":       1.3,   # loosened — still above average
+    "volume_min_mult":       1.5,   # was 1.3 — require stronger conviction
     "atr_pct_max":           0.04,
-    "dead_money_hours":      4,     # give trades time to develop
-    "max_hold_hours":        6,     # allow intraday plays to play out
+    "dead_money_hours":      4,
+    "max_hold_hours":        6,
 }
 
 # ── State files (persisted via GitHub Actions cache) ──────────────────────────
@@ -1734,14 +1734,14 @@ def scan_long(symbol) -> dict | None:
     atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
     # Macro — tightened
     mac_score = (100 if m.market_regime == "trending_up" else
-                 65  if m.market_regime == "ranging" else
+                 40  if m.market_regime == "ranging" else
                  40  if m.market_regime == "volatile" else 15)
     if m.vix_regime == "fear":      mac_score -= 35
     elif m.vix_regime == "elevated": mac_score -= 20
     if m.yield_curve < -0.5:         mac_score -= 10
     if mac_score < 30: return None
-    # DATA COLLECTION MODE: allow ranging — need data across all regimes
-    # Once 50+ trades logged, tighten back to trending_up only
+    # Exclude ranging — auto-adjust confirmed ranging has lowest WR
+    if m.market_regime == "ranging": return None
     # Headline + sentiment adjustments
     hl_score = max(0, min(100, 50 + t.headline_score / 2))
     reddit = m.reddit_mentions.get(symbol, {})
