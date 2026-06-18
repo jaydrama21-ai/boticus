@@ -126,43 +126,6 @@ hr { opacity: 0.15 !important; margin: 1.5rem 0 !important; }
 # Auto-refresh 5 min
 st.markdown("<script>setTimeout(()=>window.location.reload(),300000)</script>", unsafe_allow_html=True)
 
-# ── Next scan countdown (Python-native — works in Streamlit) ─────────────────
-from datetime import datetime as _dt
-import pytz as _pytz
-
-_ET  = _pytz.timezone("America/New_York")
-_now = _dt.now(_ET)
-_h, _m, _s = _now.hour, _now.minute, _now.second
-_weekday    = _now.weekday()
-_market_open  = _h * 60 + _m >= 9 * 60 + 30
-_market_close = _h * 60 + _m < 16 * 60
-_is_market    = _weekday < 5 and _market_open and _market_close
-
-if _is_market:
-    _mins_past = _m % 10
-    _secs_past = _mins_past * 60 + _s
-    _secs_left = 600 - _secs_past
-    _mm = _secs_left // 60
-    _ss = _secs_left % 60
-    _urgent = _secs_left <= 90
-    _color  = "#22c55e" if _urgent else "#888"
-    st.markdown(
-        f'<div style="font-size:13px;color:{_color};margin-bottom:4px">'
-        f'🟢 Market open &nbsp;·&nbsp; Next scan in '
-        f'<b>{_mm}:{str(_ss).zfill(2)}</b>'
-        f'{"  ⚡" if _urgent else ""}'
-        f'</div>',
-        unsafe_allow_html=True
-    )
-else:
-    _reason = "Weekend" if _weekday >= 5 else ("Pre-market" if not _market_open else "After hours")
-    st.markdown(
-        f'<div style="font-size:13px;color:#666;margin-bottom:4px">'
-        f'🔴 {_reason} — bot paused · Next open: Mon 9:30 AM ET'
-        f'</div>',
-        unsafe_allow_html=True
-    )
-
 DATA_DIR = Path("bot_state")
 
 def load(f):
@@ -192,6 +155,47 @@ avg_loss  = sum(t.get("pnl_pct",0) for t in losses)/len(losses) if losses else 0
 # ── Header ─────────────────────────────────────────────────────────────────────
 st.title("🤖 Boticus")
 st.caption(f"Updated {datetime.now().strftime('%b %d %H:%M ET')}  ·  Auto-refreshes every 5 min")
+
+# ── Next scan countdown ───────────────────────────────────────────────────────
+from datetime import datetime as _dt
+try:
+    import pytz as _pytz
+    _ET  = _pytz.timezone("America/New_York")
+    _now = _dt.now(_ET)
+except:
+    import zoneinfo as _zi
+    _ET  = _zi.ZoneInfo("America/New_York")
+    _now = _dt.now(_ET)
+
+_h, _m, _s  = _now.hour, _now.minute, _now.second
+_weekday     = _now.weekday()
+_total_mins  = _h * 60 + _m
+_market_open = _total_mins >= 9 * 60 + 30
+_mkt_close   = _total_mins < 16 * 60
+_is_market   = _weekday < 5 and _market_open and _mkt_close
+
+if _is_market:
+    _secs_left = (10 - (_m % 10)) * 60 - _s
+    _mm = _secs_left // 60
+    _ss = _secs_left % 60
+    _urgent = _secs_left <= 90
+    _color  = "#22c55e" if _urgent else "#aaa"
+    st.markdown(
+        f'<div style="font-size:13px;color:{_color};margin:0 0 12px">'
+        f'🟢 Market open &nbsp;·&nbsp; Next scan in '
+        f'<b>{_mm}:{str(_ss).zfill(2)}</b>'
+        f'{"  ⚡ scanning soon" if _urgent else ""}'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+else:
+    _reason = "Weekend" if _weekday >= 5 else ("Pre-market" if not _market_open else "After hours")
+    st.markdown(
+        f'<div style="font-size:13px;color:#555;margin:0 0 12px">'
+        f'🔴 {_reason} — bot paused'
+        f'</div>',
+        unsafe_allow_html=True
+    )
 
 r1a,r1b = st.columns(2)
 r2a,r2b = st.columns(2)
