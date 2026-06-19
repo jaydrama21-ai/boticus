@@ -321,18 +321,17 @@ WATCHLIST = property(get_watchlist) if False else CORE_WATCHLIST  # bootstrap
 
 # ── Risk config ────────────────────────────────────────────────────────────────
 # Auto-adjusted (high confidence) 2026-06-18:
-# RSI 52→60, volume 1.3→1.5, take_profit 2.0→2.5, ranging excluded
-# Recent regime: STABLE (+0.2% delta) — long WR improving (35% recent vs 32.7% historical)
+# RSI 60, volume 1.2x (afternoon-adjusted), take_profit 2.5x ATR
 RISK = {
     "stop_loss_atr_mult":    1.5,
-    "take_profit_atr_mult":  2.5,   # was 2.0 — let winners run longer
+    "take_profit_atr_mult":  2.5,
     "max_position_pct":      0.05,
     "max_risk_per_trade_pct":0.02,
     "max_daily_loss_pct":    0.02,
     "max_open_positions":    6,
-    "rsi_min":               60,    # was 52 — filter weak 40-60 RSI zone
+    "rsi_min":               60,
     "rsi_max":               72,
-    "volume_min_mult":       1.5,   # was 1.3 — require stronger conviction
+    "volume_min_mult":       1.2,   # lowered — afternoon vol always lower than morning
     "atr_pct_max":           0.04,
     "dead_money_hours":      4,
     "max_hold_hours":        6,
@@ -1515,9 +1514,8 @@ def fetch_macro():
         macro.market_regime = "trending_down"
     elif macro.vix > 30:
         macro.market_regime = "volatile"
-    elif macro.risk_score >= 2:
-        # Futures strongly risk-on even if SPY structure is choppy
-        # Treat as trending_up for signal purposes
+    elif macro.risk_score >= 1:
+        # Futures risk-on even if SPY structure is choppy — treat as trending_up
         macro.market_regime = "trending_up"
     else:
         macro.market_regime = "ranging"
