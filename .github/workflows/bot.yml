@@ -2,13 +2,19 @@ name: Boticus Trading Bot
 
 on:
   schedule:
-    - cron: '*/10 13-21 * * 1-5'
+    # Every 10 min market hours Mon-Fri (UTC — ET is UTC-4 in summer)
+    - cron: '*/10 13-20 * * 1-5'
+    # EOD close window
     - cron: '50 19 * * 1-5'
     - cron: '55 19 * * 1-5'
     - cron: '50 20 * * 1-5'
     - cron: '55 20 * * 1-5'
+    # Post-close review
     - cron: '30 20,21 * * 1-5'
+    # Sunday backtest + research
     - cron: '0 12,13 * * 0'
+    # Keep-alive — runs daily at midnight UTC to prevent GitHub disabling the schedule
+    - cron: '0 0 * * *'
 
   workflow_dispatch:
     inputs:
@@ -32,6 +38,7 @@ on:
         default: '180'
         type: choice
         options:
+          - '60'
           - '90'
           - '180'
           - '365'
