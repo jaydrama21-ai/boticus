@@ -1716,56 +1716,74 @@ def scan_long(symbol) -> dict | None:
     t = tickers.get(symbol)
     if not t or t.price == 0: return None
     m = macro
+
     # Hard gates
     if t.earnings_within_5d: return None
     if t.has_negative_news and t.headline_score < -30: return None
     if m.fomc_24h or m.cpi_24h or m.jobs_24h: return None
     if macro.risk_score <= -2: return None
-    # Trend — tightened, require >0.5% above SMA50
+
+    # Trend
     if not (t.price > t.sma_50 > t.sma_200): return None
     pct_above_50 = (t.price - t.sma_50) / t.sma_50
-    if pct_above_50 < 0.005: return None
+    if pct_above_50 < 0.003: return None
     trend_score = min(100, 90 + pct_above_50 * 200)
-    # RSI — tightened upper bound to 65
+
+    # RSI
     if not (RISK["rsi_min"] <= t.rsi_14 <= RISK["rsi_max"]): return None
-    if t.rsi_14 > 65: return None
-    mom_score = max(50, 100 - abs(t.rsi_14 - 52) * 2.5)
-    # Volume — heavier penalty
-    vol_score = min(100, 55 + (t.vol_ratio - 1) * 25)
-    if t.vol_ratio < RISK["volume_min_mult"]: vol_score *= 0.4
+    mom_score = max(50, 100 - abs(t.rsi_14 - 62) * 2.5)
+
+    # Volume
     if t.vol_ratio < 0.8: return None
+    vol_score = min(100, 55 + (t.vol_ratio - 1) * 25)
+    if t.vol_ratio < RISK["volume_min_mult"]: vol_score *= 0.6
+
     # ATR
     if t.atr_pct > RISK["atr_pct_max"]: return None
     if t.atr_pct < 0.005: return None
     atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
-    # Macro — tightened
+
+    # Macro
     mac_score = (100 if m.market_regime == "trending_up" else
-                 50  if m.market_regime == "ranging" else
-                 40  if m.market_regime == "volatile" else 15)
+                 55  if m.market_regime == "ranging" else
+                 45  if m.market_regime == "volatile" else 20)
     if m.vix_regime == "fear":       mac_score -= 35
-    elif m.vix_regime == "elevated": mac_score -= 20
+    elif m.vix_regime == "elevated": mac_score -= 15
     if m.yield_curve < -0.5:         mac_score -= 10
-    if mac_score < 30: return None
-    # Ranging — allow only high-conviction setups (score must be 70+)
+    if mac_score < 25: return None
     ranging_mode = m.market_regime == "ranging"
-    # Headline + sentiment adjustments
-    hl_score = max(0, min(100, 50 + t.headline_score / 2))
-    reddit = m.reddit_mentions.get(symbol, {})
-    reddit_adj = 8 if (reddit.get("trending") and reddit.get("bullish",0) > reddit.get("bearish",0)) else (
-                -15 if (reddit.get("trending") and reddit.get("bearish",0) > reddit.get("bullish",0)) else 0)
-    sym_sector = SECTOR_MAP.get(symbol)
-    sector_adj = (5 if sym_sector and m.sector_rotation.get(sym_sector, {}).get("favored") else
-                 -5 if sym_sector and sym_sector in m.sector_rotation else 0)
-    is_unusual  = any(u["symbol"] == symbol for u in m.unusual_volume)
-    unusual_adj = 5 if is_unusual else 0
-    criteria = (trend_score*0.25 + mom_score*0.20 + vol_score*0.20 +
-                atr_score*0.15 + mac_score*0.15 + hl_score*0.05 +
-                reddit_adj + sector_adj + unusual_adj)
-    # In ranging markets require higher conviction
-    min_criteria = 70 if ranging_mode else 60
+
+    # Intelligence adjustments
+    hl_score      = max(0, min(100, 50 + t.headline_score / 2))
+    reddit        = m.reddit_mentions.get(symbol, {})
+    reddit_adj    = (8  if reddit.get("trending") and reddit.get("bullish",0) > reddit.get("bearish",0)
+                    else -10 if reddit.get("trending") and reddit.get("bearish",0) > reddit.get("bullish",0)
+                    else 0)
+    is_unusual    = any(u["symbol"] == symbol for u in m.unusual_volume)
+    unusual_adj   = 5 if is_unusual else 0
+
+    vwap_adj,     vwap_note     = get_vwap_score(symbol, t.price, "long")
+    sector_adj,   sector_note   = get_sector_momentum_score(symbol, "long")
+    earnings_adj, earnings_note = get_post_earnings_score(symbol)
+    insider_adj,  insider_note  = get_insider_score(symbol)
+    options_adj,  options_note  = get_options_flow_score(symbol, "long")
+    congress_adj, congress_note = get_congress_score(symbol)
+
+    # Final criteria — everything in one calculation
+    criteria = (trend_score  * 0.25 +
+                mom_score    * 0.20 +
+                vol_score    * 0.20 +
+                atr_score    * 0.15 +
+                mac_score    * 0.15 +
+                hl_score     * 0.05 +
+                reddit_adj + unusual_adj +
+                vwap_adj + sector_adj + earnings_adj +
+                insider_adj + options_adj + congress_adj)
+
+    min_criteria = 68 if ranging_mode else 58
     if criteria < min_criteria: return None
 
-    # ── Multi-timeframe confirmation ──────────────────────────────────────────
+    # Multi-timeframe confirmation
     mtf_ok, mtf_reason = get_1h_confirmation(symbol, "long")
     if not mtf_ok:
         log(f"  {symbol} LONG rejected: {mtf_reason}")
@@ -1776,20 +1794,23 @@ def scan_long(symbol) -> dict | None:
     target = round(t.price + RISK["take_profit_atr_mult"] * atr, 2)
     rr     = round((target - t.price) / (t.price - stop), 2) if t.price > stop else 0
     if rr < 1.5: return None
-    notes = [f"Trend↑ {pct_above_50:.1%} above SMA50",
+
+    notes = [f"Trend up {pct_above_50:.1%} above SMA50",
              f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}",
              mtf_reason]
+    for n in [vwap_note, sector_note, earnings_note, insider_note, options_note, congress_note]:
+        if n: notes.append(n)
     if t.headline_score > 20: notes.append(f"Headlines bullish ({t.headline_score:+.0f})")
-    reddit_mentions = reddit.get("mentions", 0)
-    if reddit.get("trending"): notes.append(f"StockTwits trending ({reddit_mentions} msgs)")
-    if is_unusual: notes.append(f"Unusual volume {t.vol_ratio:.1f}x")
+    if reddit.get("trending"):  notes.append("StockTwits trending")
+    if is_unusual:              notes.append(f"Unusual volume {t.vol_ratio:.1f}x")
+
     return {
-        "symbol": symbol, "type": "stock_long", "direction": "long",
-        "entry": t.price, "stop": stop, "target": target, "rr": rr,
+        "symbol":   symbol, "type": "stock_long", "direction": "long",
+        "entry":    t.price, "stop": stop, "target": target, "rr": rr,
         "criteria": round(criteria, 1),
-        "scores": {"trend": trend_score, "momentum": mom_score,
-                   "volume": vol_score, "atr": atr_score, "macro": mac_score},
-        "notes": notes,
+        "scores":   {"trend": trend_score, "momentum": mom_score,
+                     "volume": vol_score, "atr": atr_score, "macro": mac_score},
+        "notes":          notes,
         "headline_score": t.headline_score,
         "reddit_trending": reddit.get("trending", False),
     }
@@ -1879,6 +1900,576 @@ def scan_all() -> list:
     signals.sort(key=lambda x: x["criteria"], reverse=True)
     log(f"Scan complete: {len(signals)} signal(s)")
     return signals
+
+
+    return signals
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PRE-MARKET GAP SCANNER
+# Runs 9:00-9:25 AM ET — finds stocks gapping significantly before open
+# Crosses with news to decide fade vs follow strategy
+# ══════════════════════════════════════════════════════════════════════════════
+
+def scan_premarket_gaps() -> list:
+    """
+    Identify pre-market gap setups before 9:30 AM open.
+    Gap up + positive news = follow (long)
+    Gap up + negative news = fade (short)
+    Gap down + positive news = fade (long)
+    Returns list of gap setups with direction and conviction score.
+    """
+    now = datetime.now(ET)
+    if not (9 <= now.hour < 9 and now.minute < 30) and not (now.hour == 9 and now.minute < 30):
+        return []
+
+    log("Pre-market gap scan...")
+    gaps = []
+
+    for symbol in get_watchlist():
+        t = tickers.get(symbol)
+        if not t or t.price == 0:
+            continue
+        try:
+            # Get pre-market price via Alpaca
+            r = requests.get(
+                f"{ALPACA_DATA}/v2/stocks/{symbol}/quotes/latest",
+                headers={"APCA-API-KEY-ID": ALPACA_KEY,
+                         "APCA-API-SECRET-KEY": ALPACA_SECRET},
+                params={"feed": "iex"},
+                timeout=6
+            )
+            if not r.ok:
+                continue
+
+            quote     = r.json().get("quote", {})
+            ask       = float(quote.get("ap", 0))
+            bid       = float(quote.get("bp", 0))
+            pre_price = (ask + bid) / 2 if ask > 0 and bid > 0 else 0
+
+            if pre_price <= 0:
+                continue
+
+            # Gap vs previous close
+            prev_close = t.price  # Last known price (previous close)
+            gap_pct    = (pre_price - prev_close) / prev_close * 100
+
+            # Only care about significant gaps
+            if abs(gap_pct) < 1.5:
+                continue
+
+            hl_score = t.headline_score
+            direction = None
+            conviction = 0
+
+            if gap_pct >= 2.0:
+                if hl_score >= 20:
+                    direction  = "long"   # Gap up + good news = follow
+                    conviction = min(100, 60 + gap_pct * 3 + hl_score / 2)
+                elif hl_score <= -20:
+                    direction  = "short"  # Gap up + bad news = fade
+                    conviction = min(100, 55 + abs(hl_score) / 2)
+                else:
+                    direction  = "long"   # Gap up + neutral = cautious follow
+                    conviction = min(100, 50 + gap_pct * 2)
+
+            elif gap_pct <= -2.0:
+                if hl_score <= -20:
+                    direction  = "short"  # Gap down + bad news = follow short
+                    conviction = min(100, 60 + abs(gap_pct) * 3)
+                elif hl_score >= 20:
+                    direction  = "long"   # Gap down + good news = buy the dip
+                    conviction = min(100, 55 + hl_score / 2)
+
+            if direction and conviction >= 55:
+                atr   = t.atr_14 or pre_price * 0.015
+                if direction == "long":
+                    stop   = round(pre_price - 1.5 * atr, 2)
+                    target = round(pre_price + 2.5 * atr, 2)
+                else:
+                    stop   = round(pre_price + 1.5 * atr, 2)
+                    target = round(pre_price - 2.5 * atr, 2)
+
+                rr = round(abs(target - pre_price) / abs(pre_price - stop), 2) if abs(pre_price - stop) > 0 else 0
+                if rr < 1.5:
+                    continue
+
+                gaps.append({
+                    "symbol":     symbol,
+                    "type":       "premarket_gap",
+                    "direction":  direction,
+                    "gap_pct":    round(gap_pct, 2),
+                    "pre_price":  pre_price,
+                    "prev_close": prev_close,
+                    "entry":      pre_price,
+                    "stop":       stop,
+                    "target":     target,
+                    "rr":         rr,
+                    "criteria":   round(conviction, 1),
+                    "scores":     {"trend": 70, "momentum": conviction,
+                                   "volume": 70, "atr": 70, "macro": 70},
+                    "notes":      [f"Gap {'▲' if gap_pct > 0 else '▼'} {gap_pct:+.1f}% pre-market",
+                                   f"Headlines: {hl_score:+.0f}",
+                                   f"Strategy: {'follow' if (gap_pct > 0 and direction == 'long') or (gap_pct < 0 and direction == 'short') else 'fade'}"],
+                    "headline_score":  hl_score,
+                    "reddit_trending": False,
+                })
+                log(f"  GAP: {symbol} {direction.upper()} {gap_pct:+.1f}% "
+                    f"@ ${pre_price:.2f} (conviction: {conviction:.0f})")
+
+        except Exception as e:
+            pass
+
+    gaps.sort(key=lambda x: x["criteria"], reverse=True)
+    if gaps:
+        gap_str = "\n".join([
+            f"{'▲' if g['gap_pct'] > 0 else '▼'} {g['symbol']} {g['gap_pct']:+.1f}% → {g['direction'].upper()}"
+            for g in gaps[:5]
+        ])
+        _tg(f"🌅 *Pre-Market Gap Scan*\n{len(gaps)} setup(s):\n{gap_str}")
+
+    return gaps[:5]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VWAP ANALYSIS
+# Confirms breakouts are happening at meaningful price levels
+# VWAP = Volume Weighted Average Price — the institutional benchmark
+# ══════════════════════════════════════════════════════════════════════════════
+
+def calculate_vwap(symbol: str) -> float | None:
+    """
+    Calculate intraday VWAP using 5-minute bars.
+    Price above VWAP = institutional buying pressure
+    Price below VWAP = institutional selling pressure
+    """
+    try:
+        ticker = yf.Ticker(symbol)
+        bars   = ticker.history(period="1d", interval="5m")
+        if bars.empty or len(bars) < 5:
+            return None
+
+        typical_price = (bars["High"] + bars["Low"] + bars["Close"]) / 3
+        vwap = (typical_price * bars["Volume"]).cumsum() / bars["Volume"].cumsum()
+        return float(vwap.iloc[-1])
+    except:
+        return None
+
+
+def get_vwap_score(symbol: str, price: float, direction: str) -> tuple[float, str]:
+    """
+    Score a signal based on VWAP position.
+    Returns (score_adjustment, reason).
+    """
+    vwap = calculate_vwap(symbol)
+    if vwap is None:
+        return 0, "VWAP unavailable"
+
+    pct_from_vwap = (price - vwap) / vwap * 100
+
+    if direction == "long":
+        if price > vwap * 1.002:      # Above VWAP — institutional tailwind
+            return 8, f"Above VWAP ${vwap:.2f} (+{pct_from_vwap:.1f}%) ✓"
+        elif price > vwap * 0.998:    # At VWAP — neutral
+            return 2, f"At VWAP ${vwap:.2f}"
+        else:                          # Below VWAP — fighting institutional flow
+            return -10, f"Below VWAP ${vwap:.2f} ({pct_from_vwap:.1f}%) ✗"
+    else:  # short
+        if price < vwap * 0.998:
+            return 8, f"Below VWAP ${vwap:.2f} ({pct_from_vwap:.1f}%) ✓"
+        elif price < vwap * 1.002:
+            return 2, f"At VWAP ${vwap:.2f}"
+        else:
+            return -10, f"Above VWAP ${vwap:.2f} (+{pct_from_vwap:.1f}%) ✗"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTOR MOMENTUM SCORING
+# Trade with the sector wind — boosts signals aligned with sector direction
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_sector_momentum_score(symbol: str, direction: str) -> tuple[float, str]:
+    """
+    Score based on whether the signal aligns with its sector's intraday momentum.
+    XLK up 2% → tech signals get +10 boost
+    XLK down 2% → tech long signals get -15 penalty
+    """
+    sym_sector = SECTOR_MAP.get(symbol)
+    if not sym_sector:
+        return 0, ""
+
+    # Find the ETF for this sector
+    sector_etf = None
+    for etf, sector in SECTOR_MAP.items():
+        if sector == sym_sector and etf in tickers:
+            sector_etf = etf
+            break
+
+    if not sector_etf:
+        return 0, ""
+
+    etf_data = tickers.get(sector_etf)
+    if not etf_data:
+        return 0, ""
+
+    etf_change = etf_data.change_pct  # Today's % change
+
+    if direction == "long":
+        if etf_change >= 1.5:
+            return 12, f"{sector_etf} +{etf_change:.1f}% — sector tailwind ✓"
+        elif etf_change >= 0.5:
+            return 5, f"{sector_etf} +{etf_change:.1f}% — mild tailwind"
+        elif etf_change <= -1.5:
+            return -15, f"{sector_etf} {etf_change:.1f}% — sector headwind ✗"
+        elif etf_change <= -0.5:
+            return -8, f"{sector_etf} {etf_change:.1f}% — mild headwind"
+    else:  # short
+        if etf_change <= -1.5:
+            return 12, f"{sector_etf} {etf_change:.1f}% — sector falling ✓"
+        elif etf_change >= 1.5:
+            return -12, f"{sector_etf} +{etf_change:.1f}% — sector rising ✗"
+
+    return 0, ""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# POST-EARNINGS BOOST
+# Best setups are 2-5 days AFTER a strong earnings beat
+# Company beat + uptrend = high conviction
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Track recent earnings beats — updated weekly via research digest
+EARNINGS_BEATS: dict = {}  # symbol -> {beat: bool, date: str, surprise_pct: float}
+
+def get_post_earnings_score(symbol: str) -> tuple[float, str]:
+    """
+    Boost signals for stocks that recently beat earnings.
+    2-5 days post-beat in uptrend = highest win rate setup.
+    """
+    beat = EARNINGS_BEATS.get(symbol)
+    if not beat:
+        return 0, ""
+
+    try:
+        from datetime import date as _date
+        beat_date = _date.fromisoformat(beat["date"])
+        days_since = (_date.today() - beat_date).days
+
+        if 2 <= days_since <= 7 and beat.get("beat"):
+            surprise = beat.get("surprise_pct", 0)
+            score = 15 if surprise >= 10 else 10 if surprise >= 5 else 7
+            return score, f"Earnings beat {days_since}d ago (+{surprise:.0f}% surprise) ✓"
+        elif days_since > 7:
+            # Remove stale entry
+            EARNINGS_BEATS.pop(symbol, None)
+    except:
+        pass
+
+    return 0, ""
+
+
+def load_earnings_beats_from_digest():
+    """Load post-earnings data from research digest if available."""
+    digest_file = STATE_DIR / "research_digest.json"
+    if not digest_file.exists():
+        return
+    try:
+        digest   = json.loads(digest_file.read_text())
+        earnings = digest.get("earnings", [])
+        for e in earnings:
+            sym = e.get("symbol")
+            if sym:
+                # Parse highlights for beat/miss language
+                text = " ".join(str(h) for h in e.get("highlights", []))
+                is_beat = any(kw in text.lower() for kw in
+                             ["beat", "exceeded", "surpassed", "above estimates",
+                              "raised guidance", "record revenue"])
+                EARNINGS_BEATS[sym] = {
+                    "beat":         is_beat,
+                    "date":         e.get("date", ""),
+                    "surprise_pct": 5.0 if is_beat else -5.0,
+                }
+    except Exception as e:
+        log(f"Earnings beats load error: {e}", "WARN")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SEC INSIDER BUYING TRACKER
+# Pull Form 4 filings — CEO/CFO buying their own stock = strongest signal
+# Free from SEC EDGAR API, no auth needed
+# ══════════════════════════════════════════════════════════════════════════════
+
+INSIDER_SIGNALS: dict = {}  # symbol -> {buyer, shares, value, date, title}
+
+def fetch_insider_filings(symbols: list):
+    """
+    Pull recent Form 4 insider PURCHASE filings from SEC EDGAR.
+    Only tracks purchases (not option exercises or sales).
+    Stores significant buys ($50k+) as signal boosters.
+    """
+    log("Fetching SEC insider filings...")
+    headers = {
+        "User-Agent": "Boticus Research bot@boticus.app",
+        "Accept":     "application/json",
+    }
+    try:
+        # Get recent Form 4 filings
+        r = requests.get(
+            "https://efts.sec.gov/LATEST/search-index?q=%22form+4%22&dateRange=custom"
+            f"&startdt={(datetime.now(ET) - timedelta(days=7)).strftime('%Y-%m-%d')}"
+            f"&enddt={datetime.now(ET).strftime('%Y-%m-%d')}"
+            "&forms=4",
+            headers=headers,
+            timeout=12
+        )
+        if not r.ok:
+            # Try alternative endpoint
+            r = requests.get(
+                "https://www.sec.gov/cgi-bin/browse-edgar"
+                "?action=getcurrent&type=4&dateb=&owner=include&count=40&search_text=",
+                headers=headers,
+                timeout=12
+            )
+        if not r.ok:
+            log(f"  SEC EDGAR: HTTP {r.status_code}", "WARN")
+            return
+
+        # Parse for watchlist symbols
+        text = r.text
+        for symbol in symbols:
+            if symbol.lower() in text.lower():
+                # Found a filing mentioning this ticker
+                # Flag for deeper check
+                INSIDER_SIGNALS[symbol] = {
+                    "flagged": True,
+                    "date":    datetime.now(ET).strftime("%Y-%m-%d"),
+                    "source":  "SEC EDGAR Form 4",
+                }
+
+    except Exception as e:
+        log(f"  SEC insider fetch error: {e}", "WARN")
+
+    # Also check Unusual Whales for insider data (free page)
+    try:
+        r = requests.get(
+            "https://unusualwhales.com/api/insider/recent",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10
+        )
+        if r.ok:
+            filings = r.json() if isinstance(r.json(), list) else r.json().get("data", [])
+            for f in filings[:50]:
+                sym      = f.get("ticker", "").upper()
+                tx_type  = f.get("transaction_type", "").lower()
+                value    = float(f.get("value", 0) or 0)
+                title    = f.get("title", "")
+
+                # Only care about purchases by executives
+                is_exec     = any(t in title.upper() for t in
+                                  ["CEO","CFO","COO","CTO","PRESIDENT","DIRECTOR","CHAIRMAN"])
+                is_purchase = "purchase" in tx_type or "buy" in tx_type
+                is_significant = value >= 50000
+
+                if sym in symbols and is_exec and is_purchase and is_significant:
+                    INSIDER_SIGNALS[sym] = {
+                        "buyer":  title,
+                        "value":  value,
+                        "date":   f.get("date", ""),
+                        "source": "Unusual Whales",
+                    }
+                    log(f"  🔑 Insider buy: {sym} — {title} ${value:,.0f}")
+
+    except Exception as e:
+        log(f"  Unusual Whales insider: {e}", "WARN")
+
+
+def get_insider_score(symbol: str) -> tuple[float, str]:
+    """Boost signals where insiders are buying."""
+    insider = INSIDER_SIGNALS.get(symbol)
+    if not insider:
+        return 0, ""
+    value = insider.get("value", 0)
+    buyer = insider.get("buyer", "Insider")
+    if value >= 500000:
+        return 20, f"🔑 {buyer} bought ${value:,.0f} ✓✓"
+    elif value >= 100000:
+        return 12, f"🔑 {buyer} bought ${value:,.0f} ✓"
+    elif value >= 50000:
+        return 7,  f"🔑 Insider purchase ${value:,.0f}"
+    return 3, f"🔑 Insider activity flagged"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UNUSUAL OPTIONS FLOW
+# Large unusual options activity = smart money leaving footprints
+# Free from Barchart and Unusual Whales public pages
+# ══════════════════════════════════════════════════════════════════════════════
+
+UNUSUAL_OPTIONS: dict = {}  # symbol -> {type, premium, expiry, sentiment}
+
+def fetch_unusual_options_flow():
+    """
+    Pull unusual options activity from public sources.
+    Large call buying = bullish smart money
+    Large put buying = bearish smart money / hedge
+    """
+    log("Fetching unusual options flow...")
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; boticus/1.0)"}
+
+    try:
+        # Unusual Whales flow endpoint
+        r = requests.get(
+            "https://unusualwhales.com/api/optionAlerts/recent",
+            headers=headers,
+            timeout=10
+        )
+        if r.ok:
+            alerts = r.json() if isinstance(r.json(), list) else r.json().get("data", [])
+            for alert in alerts[:100]:
+                sym       = alert.get("ticker", "").upper()
+                premium   = float(alert.get("premium", 0) or 0)
+                put_call  = alert.get("put_call", "").lower()
+                sentiment = alert.get("sentiment", "").lower()
+
+                if sym in get_watchlist() and premium >= 100000:
+                    UNUSUAL_OPTIONS[sym] = {
+                        "type":      put_call,
+                        "premium":   premium,
+                        "sentiment": sentiment,
+                        "date":      datetime.now(ET).strftime("%Y-%m-%d"),
+                    }
+                    log(f"  🎯 Unusual options: {sym} {put_call.upper()} "
+                        f"${premium:,.0f} premium ({sentiment})")
+    except Exception as e:
+        log(f"  Unusual options error: {e}", "WARN")
+
+    # Also check Barchart unusual activity
+    try:
+        r = requests.get(
+            "https://www.barchart.com/options/unusual-activity/stocks",
+            headers={**headers, "Accept": "application/json",
+                     "X-XSRF-TOKEN": ""},
+            timeout=10
+        )
+        if r.ok and "json" in r.headers.get("content-type", ""):
+            data = r.json().get("data", {}).get("rows", [])
+            for row in data[:50]:
+                sym     = row.get("baseSymbol", "").upper()
+                pc      = row.get("optionType", "").lower()
+                vol_oi  = float(row.get("volumeOpenInterestRatio", 0) or 0)
+                if sym in get_watchlist() and vol_oi >= 3.0:
+                    UNUSUAL_OPTIONS[sym] = UNUSUAL_OPTIONS.get(sym, {})
+                    UNUSUAL_OPTIONS[sym].update({
+                        "vol_oi_ratio": vol_oi,
+                        "type":         pc,
+                        "source":       "barchart",
+                    })
+    except Exception as e:
+        log(f"  Barchart options: {e}", "WARN")
+
+
+def get_options_flow_score(symbol: str, direction: str) -> tuple[float, str]:
+    """Boost/penalize signals based on unusual options activity."""
+    opt = UNUSUAL_OPTIONS.get(symbol)
+    if not opt:
+        return 0, ""
+
+    opt_type  = opt.get("type", "")
+    premium   = opt.get("premium", 0)
+    sentiment = opt.get("sentiment", "")
+
+    is_bullish = "call" in opt_type or "bullish" in sentiment
+    is_bearish = "put"  in opt_type or "bearish" in sentiment
+
+    prem_str = f"${premium/1000:.0f}k" if premium >= 1000 else ""
+
+    if direction == "long" and is_bullish:
+        score = 15 if premium >= 500000 else 10 if premium >= 200000 else 7
+        return score, f"🎯 Unusual CALL flow {prem_str} ✓"
+    elif direction == "long" and is_bearish:
+        return -12, f"🎯 Unusual PUT flow {prem_str} — smart money bearish ✗"
+    elif direction == "short" and is_bearish:
+        score = 15 if premium >= 500000 else 10
+        return score, f"🎯 Unusual PUT flow {prem_str} ✓"
+    elif direction == "short" and is_bullish:
+        return -12, f"🎯 Unusual CALL flow — smart money bullish ✗"
+
+    return 0, ""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONGRESSIONAL TRADING MONITOR
+# Politicians must disclose trades within 45 days
+# Studies show congress outperforms market — track overlaps with watchlist
+# ══════════════════════════════════════════════════════════════════════════════
+
+CONGRESS_TRADES: dict = {}  # symbol -> {politician, party, type, amount, date}
+
+def fetch_congress_trades():
+    """
+    Pull recent congressional stock disclosures from Unusual Whales.
+    Free public data — no auth needed.
+    """
+    log("Fetching congressional trading data...")
+    try:
+        r = requests.get(
+            "https://unusualwhales.com/api/congress/recent",
+            headers={"User-Agent": "Mozilla/5.0 (compatible; boticus/1.0)"},
+            timeout=10
+        )
+        if not r.ok:
+            log(f"  Congress trades: HTTP {r.status_code}", "WARN")
+            return
+
+        trades = r.json() if isinstance(r.json(), list) else r.json().get("data", [])
+        wl     = set(get_watchlist())
+
+        for trade in trades[:100]:
+            sym      = trade.get("ticker", "").upper()
+            tx_type  = trade.get("type", "").lower()
+            amount   = trade.get("amount", "")
+            name     = trade.get("representative", trade.get("senator", ""))
+            party    = trade.get("party", "")
+            tx_date  = trade.get("transaction_date", "")
+
+            if sym not in wl:
+                continue
+            if "purchase" not in tx_type and "buy" not in tx_type:
+                continue
+
+            # Parse amount range to midpoint
+            amount_val = 0
+            if "$" in str(amount):
+                import re as _re
+                nums = _re.findall(r'[\d,]+', str(amount).replace(",",""))
+                if len(nums) >= 2:
+                    amount_val = (int(nums[0]) + int(nums[-1])) / 2
+                elif len(nums) == 1:
+                    amount_val = int(nums[0])
+
+            if amount_val >= 15000:
+                CONGRESS_TRADES[sym] = {
+                    "politician": name,
+                    "party":      party,
+                    "type":       tx_type,
+                    "amount":     amount_val,
+                    "date":       tx_date,
+                }
+                log(f"  🏛️  Congress buy: {sym} — {name} ({party}) ~${amount_val:,.0f}")
+
+    except Exception as e:
+        log(f"  Congress trades error: {e}", "WARN")
+
+
+def get_congress_score(symbol: str) -> tuple[float, str]:
+    """Boost signals where congress members recently bought."""
+    trade = CONGRESS_TRADES.get(symbol)
+    if not trade:
+        return 0, ""
+    name   = trade.get("politician", "Congress member")
+    amount = trade.get("amount", 0)
+    score  = 18 if amount >= 250000 else 12 if amount >= 50000 else 8
+    return score, f"🏛️  {name} bought ~${amount:,.0f} ✓"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2689,10 +3280,25 @@ def main():
     fetch_macro()
     fetch_price_data()
 
+    # ── Load intelligence data ─────────────────────────────────────────────
+    load_earnings_beats_from_digest()
+
     # ── Update dynamic watchlist at market open (9:30-10:00 AM) ──────────
     if session in ("open", "pre_market") and now.hour == 9 and now.minute <= 45:
         log("Market open — running dynamic watchlist update...")
         update_dynamic_watchlist()
+
+    # ── Pre-market gap scanner (9:00-9:29 AM) ─────────────────────────────
+    if session == "pre_market" and now.hour == 9 and now.minute < 30:
+        gap_signals = scan_premarket_gaps()
+        if gap_signals:
+            log(f"Pre-market: {len(gap_signals)} gap setup(s) found")
+
+    # ── Fetch intelligence feeds (runs once per day at open) ──────────────
+    if session in ("open", "pre_market") and now.hour == 9:
+        fetch_insider_filings(get_watchlist())
+        fetch_unusual_options_flow()
+        fetch_congress_trades()
 
     # ── Dashboard generation ───────────────────────────────────────────────
     if mode == "dashboard":
