@@ -3,41 +3,29 @@
     {
       "param": "rsi_min",
       "current": 60,
-      "suggested": 40,
-      "reason": "RSI 40-50 shows 23.9% WR but RSI 60-72 shows 36.9% WR. However, expanding to capture the 40-60 range may add volume while maintaining selectivity at entry"
-    },
-    {
-      "param": "rsi_max",
-      "current": 72,
-      "suggested": 72,
-      "reason": "Keep current - RSI 60-72 is the best performing segment at 36.9% WR"
+      "suggested": 50,
+      "reason": "RSI 50-60 shows 30.5% WR and 60-72 shows 34.2% WR. Expanding down to 50 captures additional moderate-performing signals while avoiding the weaker 40-50 range (24.6% WR)"
     },
     {
       "param": "volume_min",
-      "current": 2.0,
-      "suggested": 1.1,
-      "reason": "Volume >2x shows 30.0% WR vs 1.1-2x at 29.7% - virtually identical performance. Lowering threshold increases signal count without degrading win rate"
+      "current": 1.2,
+      "suggested": 1.5,
+      "reason": "Volume >2x shows 34.7% WR vs 1.1-2x at 32.8% and <1.1x at 29.5%. Raising minimum to 1.5x targets the higher-performing volume range"
     },
     {
-      "param": "target_atr_mult",
-      "current": 2.0,
-      "suggested": 2.5,
-      "reason": "Avg win +4.08% vs avg loss -3.18% suggests winners can run further. With 1.28 win/loss ratio, extending targets may capture more upside on winning trades"
-    },
-    {
-      "param": "direction_filter",
-      "current": "both",
-      "suggested": "long_only",
-      "reason": "Long WR 37.0% vs Short WR 21.7% - eliminating shorts would dramatically improve overall win rate and expectancy"
+      "param": "stop_atr_mult",
+      "current": 1.5,
+      "suggested": 1.8,
+      "reason": "Avg loss of -2.92% vs avg win of +3.96% suggests stops are too tight. With 4.0% max ATR, current 1.5x may be triggering premature exits. Widening to 1.8x improves risk-reward ratio"
     },
     {
       "param": "regime_filter",
       "current": "none",
       "suggested": "exclude_ranging",
-      "reason": "Trending_up 34% and trending_down 20% both exceed ranging at 16%. Filtering out ranging markets could improve expectancy significantly"
+      "reason": "Ranging regime shows only 20% WR in backtest vs 32% trending_up. Live 83% WR in ranging is misleading with only 6 trades. Backtest data with 4240 signals is more statistically significant"
     }
   ],
-  "summary": "Strategy shows strongly asymmetric performance with longs significantly outperforming shorts (37% vs 22% WR). Negative expectancy of -0.96% is primarily driven by poor short performance and ranging market trades. Focus on long-only trades in trending markets while relaxing volume requirements to increase signal count without degrading quality.",
+  "summary": "Live performance is misleading due to tiny sample size (6 trades). Backtest shows negative expectancy (-0.82%) requiring significant filtering improvements. Focus on higher volume signals and better regime selection while slightly widening RSI range to capture more quality setups.",
   "confidence": "high",
-  "priority_change": "Switch to long_only direction filter - this single change eliminates the 21.7% WR short trades and retains 37% WR longs, likely flipping expectancy positive immediately"
+  "priority_change": "Add regime filter to exclude ranging markets - this single change addresses the biggest performance gap (20% WR ranging vs 32% trending_up) and aligns with the statistically significant backtest data rather than the 6-trade live sample"
 }
