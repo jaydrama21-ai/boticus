@@ -3273,8 +3273,10 @@ def main():
     log(f"Paper mode: {PAPER_MODE} | Telegram: {'yes' if TELEGRAM_TOKEN else 'no'}")
     log("=" * 60)
 
-    # ── Load active watchlist ──────────────────────────────────────────────
-    load_active_watchlist()
+    # Keep-alive midnight run — just exits, no trading
+    if session == "closed" and mode == "scan":
+        log("Keep-alive run — market closed, exiting cleanly")
+        return
 
     # Always fetch data first
     fetch_macro()
@@ -3449,6 +3451,12 @@ def main():
     log(f"Open positions: {len(open_positions)}/{RISK['max_open_positions']}")
     if len(open_positions) >= RISK["max_open_positions"]:
         log("Max positions reached — not scanning for new entries")
+        commit_state_to_github()
+        return
+
+    # Hard block — never execute orders outside market hours
+    if session not in ("open",):
+        log(f"Session is '{session}' — scanning only, no order execution")
         commit_state_to_github()
         return
 
@@ -4318,7 +4326,7 @@ avg_loss  = sum(t.get("pnl_pct",0) for t in losses)/len(losses) if losses else 0
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 st.title("🤖 Boticus")
-st.caption(f"Updated {datetime.now().strftime('%b %d %H:%M ET')}  ·  Auto-refreshes every 5 min")
+st.caption(f"Updated {datetime.now().strftime('%b %d %H:%M ET')}  ·  Dashboard refreshes every 5 min  ·  Bot scans every 10 min")
 
 # ── Next scan countdown ───────────────────────────────────────────────────────
 from datetime import datetime as _dt
