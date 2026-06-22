@@ -125,6 +125,9 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    # ── Required so the git push step can write back to the repo ──
+    permissions:
+      contents: write
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -175,6 +178,21 @@ jobs:
         with:
           path: bot_state/
           key: bot-state-${{ github.run_number }}
+
+      # ── Commit state back to repo so Streamlit Cloud sees live data ──────────
+      # This is what makes the dashboard update. Without this step, bot_state/
+      # only lives in GitHub Actions cache and Streamlit never sees new files.
+      - name: Commit state to repo
+        if: always()
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
+          git add bot_state/ || true
+          # Only commit if there are actual changes (avoids empty commits)
+          git diff --cached --quiet || \
+            git commit -m "bot: update state [$(TZ=America/New_York date '+%Y-%m-%d %H:%M ET')]"
+          # Push — soft-fail so a conflict doesn't kill the whole run
+          git push || true
 
       - name: Upload logs
         uses: actions/upload-artifact@v4
