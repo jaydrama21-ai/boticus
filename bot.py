@@ -2501,10 +2501,12 @@ def score_signal(sig: dict) -> dict:
     memory   = build_pattern_memory()
     context  = build_context(sig["symbol"])
     research = load_research_digest()
+    fed_ins  = load_fed_insights()
     s        = sig["scores"]
     prompt   = (
         f"PATTERN MEMORY:\n{memory}\n\n"
         + (f"COMMUNITY RESEARCH:\n{research}\n\n" if research else "")
+        + (f"MANUALLY FED INSIGHTS:\n{fed_ins}\n\n" if fed_ins else "")
         + f"MARKET CONTEXT:\n{context}\n\n"
         f"SIGNAL: {sig['symbol']} {sig['direction'].upper()} {sig['type']}\n"
         f"Entry:${sig['entry']:.2f} Stop:${sig['stop']:.2f} "
@@ -2512,7 +2514,7 @@ def score_signal(sig: dict) -> dict:
         f"Criteria: Trend={s['trend']:.0f} Mom={s['momentum']:.0f} "
         f"Vol={s['volume']:.0f} ATR={s['atr']:.0f} Macro={s['macro']:.0f} "
         f"TOTAL={sig['criteria']:.0f}\n"
-        f"Notes: {' | '.join(sig['notes'][:3])}"
+        f"Notes: {' | '.join(sig['notes'][:5])}"
     )
     try:
         resp   = ai_client.messages.create(
@@ -3263,6 +3265,370 @@ def generate_daily_review():
 # MAIN — runs once per GitHub Actions trigger
 # ══════════════════════════════════════════════════════════════════════════════
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TELEGRAM COMMAND HANDLER
+# Text commands directly to BotikusAlerts bot
+# Commands: /status /pause /resume /positions /research /backtest
+#           /watchlist /regime /help /debug /feed <text>
+# Runs at start of every cycle — checks for new messages first
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Persistent offset to track which messages we've processed
+_TG_OFFSET_FILE = STATE_DIR / "tg_offset.json"
+
+def _get_tg_offset() -> int:
+    try:
+        if _TG_OFFSET_FILE.exists():
+            return json.loads(_TG_OFFSET_FILE.read_text()).get("offset", 0)
+    except: pass
+    return 0
+
+def _save_tg_offset(offset: int):
+    try:
+        _TG_OFFSET_FILE.write_text(json.dumps({"offset": offset}))
+    except: pass
+
+def get_tg_updates() -> list:
+    """Pull new messages from Telegram bot."""
+    if not TELEGRAM_TOKEN:
+        return []
+    try:
+        offset = _get_tg_offset()
+        r = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
+            params={"offset": offset, "timeout": 2, "limit": 10},
+            timeout=8
+        )
+        if not r.ok:
+            return []
+        updates = r.json().get("result", [])
+        if updates:
+            # Advance offset past processed messages
+            _save_tg_offset(updates[-1]["update_id"] + 1)
+        return updates
+    except Exception as e:
+        log(f"Telegram getUpdates error: {e}", "WARN")
+        return []
+
+# Trading pause state
+_PAUSE_FILE = STATE_DIR / "paused.json"
+
+def is_paused() -> bool:
+    try:
+        if _PAUSE_FILE.exists():
+            return json.loads(_PAUSE_FILE.read_text()).get("paused", False)
+    except: pass
+    return False
+
+def set_paused(paused: bool, reason: str = ""):
+    try:
+        _PAUSE_FILE.write_text(json.dumps({
+            "paused": paused,
+            "reason": reason,
+            "timestamp": datetime.now(ET).isoformat()
+        }))
+    except: pass
+
+def handle_tg_command(text: str, chat_id: str) -> bool:
+    """
+    Process a Telegram command. Returns True if handled.
+    Commands are case-insensitive, work with or without slash.
+    """
+    text = text.strip().lower()
+    cmd  = text.split()[0].lstrip("/")
+    args = text[len(cmd)+1:].strip() if len(text) > len(cmd) else ""
+
+    def reply(msg: str):
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"},
+                timeout=8
+            )
+        except: pass
+
+    # Security — only respond to authorized chat
+    if str(chat_id) != str(TELEGRAM_CHAT_ID):
+        return False
+
+    if cmd in ("help", "h", "?"):
+        reply(
+            "🤖 *Boticus Commands*\n\n"
+            "📊 *Info*\n"
+            "/status — account equity + open positions\n"
+            "/positions — detailed view of all open trades\n"
+            "/regime — current market regime + VIX + Fear&Greed\n"
+            "/watchlist — active tickers being scanned\n"
+            "/debug — why last scan found no signals\n\n"
+            "⚙️ *Control*\n"
+            "/pause — halt new trades (positions still monitored)\n"
+            "/resume — resume trading\n"
+            "/eod — close all positions now\n\n"
+            "🧠 *Intelligence*\n"
+            "/research — run research digest now\n"
+            "/backtest — run 180-day backtest\n"
+            "/regime60 — recent 60-day vs historical comparison\n"
+            "/feed <text> — feed any text into AI knowledge base\n\n"
+            "📈 *Performance*\n"
+            "/pnl — today's P&L summary\n"
+            "/wins — best trades this week\n"
+        )
+        return True
+
+    elif cmd == "status":
+        try:
+            acc       = get_account()
+            positions = get_open_positions()
+            paused    = is_paused()
+            fg        = macro.fear_greed if hasattr(macro, 'fear_greed') else {}
+            pos_lines = "\n".join([
+                f"  {p.get('symbol')} {p.get('side','').upper()} "
+                f"×{p.get('qty',0)} P&L: ${float(p.get('unrealized_pl',0)):+.2f}"
+                for p in positions[:8]
+            ]) or "  None"
+            reply(
+                f"📍 *Boticus Status*\n"
+                f"{'⚠️ PAUSED' if paused else '✅ Active'}\n\n"
+                f"Equity: ${float(acc.get('equity',0)):,.2f}\n"
+                f"Buying power: ${float(acc.get('buying_power',0)):,.2f}\n"
+                f"Open positions: {len(positions)}/6\n\n"
+                f"*Positions:*\n{pos_lines}\n\n"
+                f"Regime: {macro.market_regime} | VIX: {macro.vix:.1f}\n"
+                f"F&G: {fg.get('score',50):.0f} ({fg.get('rating','neutral')})"
+            )
+        except Exception as e:
+            reply(f"Status error: {e}")
+        return True
+
+    elif cmd == "positions":
+        try:
+            positions = get_open_positions()
+            if not positions:
+                reply("No open positions.")
+                return True
+            lines = []
+            for p in positions:
+                sym     = p.get("symbol","")
+                side    = p.get("side","").upper()
+                qty     = p.get("qty",0)
+                entry   = float(p.get("avg_entry_price",0))
+                curr    = float(p.get("current_price",0))
+                unreal  = float(p.get("unrealized_pl",0))
+                unreal_pct = float(p.get("unrealized_plpc",0))*100
+                icon    = "🟢" if unreal > 0 else "🔴"
+                lines.append(
+                    f"{icon} *{sym}* {side} ×{qty}\n"
+                    f"   Entry: ${entry:.2f} → ${curr:.2f} "
+                    f"({unreal_pct:+.1f}% / ${unreal:+.2f})"
+                )
+            reply("📊 *Open Positions*\n\n" + "\n".join(lines))
+        except Exception as e:
+            reply(f"Positions error: {e}")
+        return True
+
+    elif cmd == "regime":
+        fg = macro.fear_greed if hasattr(macro, 'fear_greed') else {}
+        futures_str = macro.futures_sentiment if hasattr(macro, 'futures_sentiment') else "N/A"
+        reply(
+            f"🌡️ *Market Regime*\n\n"
+            f"Regime: *{macro.market_regime}*\n"
+            f"VIX: {macro.vix:.1f} ({macro.vix_regime})\n"
+            f"Fear & Greed: {fg.get('score',50):.0f} ({fg.get('rating','neutral')})\n"
+            f"Futures: {futures_str}\n"
+            f"Risk score: {macro.risk_score:+d}\n"
+            f"Yield curve: {macro.yield_curve:.2f}%\n"
+            f"FOMC today: {'⚠️ Yes' if macro.fomc_24h else 'No'}\n"
+            f"CPI today: {'⚠️ Yes' if macro.cpi_24h else 'No'}"
+        )
+        return True
+
+    elif cmd == "watchlist":
+        wl = get_watchlist()
+        core    = [t for t in wl if t in CORE_WATCHLIST]
+        dynamic = [t for t in wl if t not in CORE_WATCHLIST]
+        reply(
+            f"📋 *Active Watchlist* ({len(wl)} tickers)\n\n"
+            f"*Core ({len(core)}):*\n{', '.join(core)}\n\n"
+            f"*Dynamic ({len(dynamic)}):*\n{', '.join(dynamic) or 'None added today'}"
+        )
+        return True
+
+    elif cmd == "pause":
+        set_paused(True, args or "Manual pause via Telegram")
+        reply(
+            f"⏸️ *Trading PAUSED*\n"
+            f"Reason: {args or 'Manual'}\n"
+            f"Positions still monitored. Send /resume to restart."
+        )
+        return True
+
+    elif cmd == "resume":
+        set_paused(False)
+        reply("▶️ *Trading RESUMED* — bot will scan on next cycle.")
+        return True
+
+    elif cmd == "eod":
+        reply("🔔 *EOD Close triggered* — closing all positions now...")
+        try:
+            eod_close_all()
+        except Exception as e:
+            reply(f"EOD close error: {e}")
+        return True
+
+    elif cmd == "research":
+        reply("📚 Running research digest... (takes ~2 min)")
+        try:
+            run_research_digest()
+        except Exception as e:
+            reply(f"Research error: {e}")
+        return True
+
+    elif cmd == "backtest":
+        reply("📉 Running backtest... (takes ~5 min)")
+        try:
+            bt = run_backtest(lookback_days=180)
+            if bt:
+                run_auto_adjust(backtest=bt)
+        except Exception as e:
+            reply(f"Backtest error: {e}")
+        return True
+
+    elif cmd == "regime60":
+        reply("🔬 Running 60-day regime analysis...")
+        try:
+            run_recent_regime_backtest(days=60)
+        except Exception as e:
+            reply(f"Regime analysis error: {e}")
+        return True
+
+    elif cmd == "debug":
+        # Show why last scan found no signals
+        feedback = load_feedback() if hasattr(load_feedback, '__call__') else []
+        trades   = load_trades()
+        open_t   = [t for t in trades if t.get("status") == "open"]
+        reply(
+            f"🔍 *Debug — Last Scan*\n\n"
+            f"Regime: {macro.market_regime} (need trending_up or ranging)\n"
+            f"VIX: {macro.vix:.1f} ({macro.vix_regime})\n"
+            f"Risk score: {macro.risk_score:+d}\n"
+            f"RSI min required: {RISK['rsi_min']}\n"
+            f"Volume min required: {RISK['volume_min_mult']}x\n"
+            f"Open positions: {len(open_t)}/6\n\n"
+            f"*Common blockers:*\n"
+            f"{'✅' if macro.market_regime == 'trending_up' else '❌'} Regime (trending_up)\n"
+            f"{'⚠️' if macro.fomc_24h else '✅'} FOMC {'TODAY — all signals blocked' if macro.fomc_24h else 'clear'}\n"
+            f"{'⚠️' if macro.cpi_24h else '✅'} CPI {'TODAY — all signals blocked' if macro.cpi_24h else 'clear'}\n"
+            f"{'✅' if macro.risk_score > -2 else '❌'} Risk score (need > -2)\n"
+            f"{'❌' if is_paused() else '✅'} {'PAUSED' if is_paused() else 'Not paused'}"
+        )
+        return True
+
+    elif cmd == "pnl":
+        feedback = load_trades()
+        today    = date.today().isoformat()
+        today_t  = [t for t in feedback
+                    if t.get("closed_at","")[:10] == today and t.get("status") == "closed"]
+        total_pnl = sum(t.get("pnl",0) for t in today_t)
+        wins      = [t for t in today_t if t.get("pnl",0) > 0]
+        reply(
+            f"💰 *Today's P&L*\n\n"
+            f"Trades closed: {len(today_t)}\n"
+            f"Wins: {len(wins)} | Losses: {len(today_t)-len(wins)}\n"
+            f"Total P&L: ${total_pnl:+.2f}\n\n"
+            + "\n".join([
+                f"{'🟢' if t.get('pnl',0)>0 else '🔴'} {t.get('symbol','')} "
+                f"{t.get('pnl_pct',0):+.1f}% ${t.get('pnl',0):+.2f}"
+                for t in today_t
+            ])
+        )
+        return True
+
+    elif cmd == "feed":
+        if not args:
+            reply("Usage: /feed <paste any text, article, analysis>")
+            return True
+        reply("🧠 Processing with Opus...")
+        try:
+            resp = ai_client.messages.create(
+                model=OPUS_MODEL, max_tokens=600,
+                system="Extract 2-4 specific actionable trading insights from this text. Output JSON only: {\"insights\": [{\"finding\": \"...\", \"tickers\": [], \"impact\": \"bullish/bearish/neutral\", \"confidence\": \"high/medium/low\", \"actionable\": \"...\"}], \"summary\": \"1-2 sentences\"}",
+                messages=[{"role": "user", "content": f"Extract trading insights:\n\n{args[:3000]}"}]
+            )
+            raw = resp.content[0].text.strip()
+            if raw.startswith("```"): raw = raw.split("```")[1]; raw = raw[4:] if raw.startswith("json") else raw
+            result = json.loads(raw.strip())
+
+            # Save to knowledge base
+            feed_file = STATE_DIR / "fed_insights.json"
+            existing  = json.loads(feed_file.read_text()) if feed_file.exists() else []
+            existing.extend(result.get("insights", []))
+            existing = existing[-50:]  # Keep last 50
+            feed_file.write_text(json.dumps(existing, indent=2))
+
+            findings = "\n".join([f"• {i['finding'][:100]}" for i in result.get("insights",[])])
+            reply(
+                f"✅ *Fed to the beast*\n\n"
+                f"*Insights extracted:*\n{findings}\n\n"
+                f"_{result.get('summary','')}_\n\n"
+                f"Added to knowledge base — Opus will use this in next signal score."
+            )
+        except Exception as e:
+            reply(f"Feed error: {e}")
+        return True
+
+    return False  # Unknown command
+
+
+def process_tg_commands():
+    """
+    Check for new Telegram messages and handle commands.
+    Runs at the start of every bot cycle.
+    """
+    if not TELEGRAM_TOKEN:
+        return
+
+    updates = get_tg_updates()
+    for update in updates:
+        msg     = update.get("message", {})
+        text    = msg.get("text", "")
+        chat_id = str(msg.get("chat", {}).get("id", ""))
+
+        if not text or not chat_id:
+            continue
+
+        # Only handle commands (starting with /)
+        if text.startswith("/"):
+            log(f"Telegram command from {chat_id}: {text[:50]}")
+            handled = handle_tg_command(text, chat_id)
+            if not handled:
+                try:
+                    requests.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                        json={"chat_id": chat_id,
+                              "text": "Unknown command. Send /help for list."},
+                        timeout=8
+                    )
+                except: pass
+
+
+def load_fed_insights() -> str:
+    """Load manually fed insights for AI brain context."""
+    feed_file = STATE_DIR / "fed_insights.json"
+    if not feed_file.exists():
+        return ""
+    try:
+        insights = json.loads(feed_file.read_text())
+        if not insights:
+            return ""
+        lines = ["=== MANUALLY FED INSIGHTS ==="]
+        for i in insights[-10:]:  # Last 10
+            lines.append(f"• {i.get('finding','')} [{i.get('confidence','')}]")
+        return "\n".join(lines)
+    except:
+        return ""
+
+
 def main():
     now     = datetime.now(ET)
     session = get_market_session()
@@ -3273,9 +3639,18 @@ def main():
     log(f"Paper mode: {PAPER_MODE} | Telegram: {'yes' if TELEGRAM_TOKEN else 'no'}")
     log("=" * 60)
 
+    # ── Process Telegram commands first ───────────────────────────────────
+    process_tg_commands()
+
     # Keep-alive midnight run — just exits, no trading
     if session == "closed" and mode == "scan":
         log("Keep-alive run — market closed, exiting cleanly")
+        return
+
+    # ── Check pause state ─────────────────────────────────────────────────
+    if is_paused() and mode == "scan":
+        log("⚠️  Bot is PAUSED — skipping scan. Send /resume to restart.")
+        _tg("⏸️ Bot is paused — skipping this cycle. Send /resume to restart.")
         return
 
     # Always fetch data first
@@ -4108,6 +4483,9 @@ def commit_state_to_github():
         "bot.log",
         "watchlist.json",
         "research_digest.json",
+        "fed_insights.json",
+        "tg_offset.json",
+        "paused.json",
     ]
 
     committed = 0
