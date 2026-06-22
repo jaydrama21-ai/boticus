@@ -37,8 +37,8 @@ ALPACA_HEADERS  = {
 }
 
 ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-OPUS_MODEL   = "claude-opus-4-5"
-SONNET_MODEL = "claude-sonnet-4-5"
+OPUS_MODEL   = "claude-opus-4-6"
+SONNET_MODEL = "claude-sonnet-4-6"
 
 
 # ── Watchlist ──────────────────────────────────────────────────────────────────
@@ -4019,7 +4019,7 @@ def run_auto_adjust(backtest: dict = None, notify: bool = True) -> dict:
 
     try:
         resp = ai_client.messages.create(
-            model=SONNET_MODEL, max_tokens=800,
+            model=OPUS_MODEL, max_tokens=800,
             system=(
                 "You are a quantitative trading strategy optimizer. "
                 "Analyze performance data and suggest specific, data-driven parameter adjustments. "
