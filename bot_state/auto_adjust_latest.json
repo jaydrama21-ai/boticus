@@ -1,31 +1,49 @@
 {
   "adjustments": [
     {
-      "param": "rsi_min",
-      "current": 60,
-      "suggested": 50,
-      "reason": "RSI 50-60 shows 30.5% WR and 60-72 shows 34.2% WR. Expanding down to 50 captures additional moderate-performing signals while avoiding the weaker 40-50 range (24.6% WR)"
+      "param": "max_risk_per_trade",
+      "current": 2.0,
+      "suggested": 0.5,
+      "reason": "Negative expectancy of -1.12% per trade across 2677 signals. With 5 consecutive live losses, capital preservation is critical. Reduce risk until a positive edge is confirmed."
+    },
+    {
+      "param": "max_daily_loss",
+      "current": 2.0,
+      "suggested": 1.0,
+      "reason": "Recent streak of 5 consecutive losses indicates regime is unfavorable. Tighter daily loss limit protects against drawdown cascades."
     },
     {
       "param": "volume_min",
       "current": 1.2,
-      "suggested": 1.5,
-      "reason": "Volume >2x shows 34.7% WR vs 1.1-2x at 32.8% and <1.1x at 29.5%. Raising minimum to 1.5x targets the higher-performing volume range"
+      "suggested": 2.0,
+      "reason": "Volume >2x shows 31.4% WR vs 22.1% for <1.1x and 26.7% for 1.1-2x. Higher volume threshold filters for strongest setups and improves win rate by ~5 percentage points."
+    },
+    {
+      "param": "regime_filter",
+      "current": "all",
+      "suggested": "trending_up_only",
+      "reason": "Ranging regime shows only 14% backtest WR (and 45% live on small sample with recent 5 losses). Trending up shows 25% WR. Eliminate ranging regime trades entirely."
+    },
+    {
+      "param": "rsi_min",
+      "current": 60,
+      "suggested": 62,
+      "reason": "RSI 60-72 range already shows best performance at 26.1% WR, but overall system is negative. Slight tightening to higher-conviction entries within the best-performing range."
+    },
+    {
+      "param": "target_atr_mult",
+      "current": 2.5,
+      "suggested": 2.0,
+      "reason": "With 23.7% win rate, the 2.5x target is too ambitious. Reducing to 2.0x should improve win rate while maintaining favorable risk-reward at 2.0/1.5 = 1.33R. Avg win of 5.16% vs avg loss 3.06% (1.69R) suggests targets are occasionally hit but a tighter target may convert more trades to wins."
     },
     {
       "param": "stop_atr_mult",
       "current": 1.5,
       "suggested": 1.8,
-      "reason": "Avg loss of -2.92% vs avg win of +3.96% suggests stops are too tight. With 4.0% max ATR, current 1.5x may be triggering premature exits. Widening to 1.8x improves risk-reward ratio"
-    },
-    {
-      "param": "regime_filter",
-      "current": "none",
-      "suggested": "exclude_ranging",
-      "reason": "Ranging regime shows only 20% WR in backtest vs 32% trending_up. Live 83% WR in ranging is misleading with only 6 trades. Backtest data with 4240 signals is more statistically significant"
+      "reason": "Wider stops may reduce the frequency of being stopped out on noise, improving the 23.7% win rate. Combined with the tighter target of 2.0x, this gives 1.11R but with potentially much higher win rate."
     }
   ],
-  "summary": "Live performance is misleading due to tiny sample size (6 trades). Backtest shows negative expectancy (-0.82%) requiring significant filtering improvements. Focus on higher volume signals and better regime selection while slightly widening RSI range to capture more quality setups.",
-  "confidence": "high",
-  "priority_change": "Add regime filter to exclude ranging markets - this single change addresses the biggest performance gap (20% WR ranging vs 32% trending_up) and aligns with the statistically significant backtest data rather than the 6-trade live sample"
+  "summary": "The system has a clearly negative expectancy (-1.12% per trade across 2677 signals) and 5 consecutive live losses. This is not a system that should be traded aggressively in its current form. The most critical action is dramatically reducing position size to preserve capital while filtering for only the highest-conviction setups: high volume (>2x), trending-up regimes only, and moderately tighter targets to convert more trades to wins.",
+  "confidence": "medium",
+  "priority_change": "Reduce max_risk_per_trade from 2.0% to 0.5% immediately \u2014 the system has negative expectancy and 5 consecutive losses, so capital preservation must take absolute priority before any other optimization."
 }
