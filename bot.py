@@ -255,7 +255,7 @@ RISK = {
     "max_risk_per_trade_pct":0.02,
     "max_daily_loss_pct":    0.02,
     "max_open_positions":    6,
-    "rsi_min":               60,
+    "rsi_min":               55,
     "rsi_max":               72,
     "volume_min_mult":       1.2,
     "atr_pct_max":           0.04,
@@ -1269,7 +1269,7 @@ def scan_long(symbol) -> dict | None:
     if t.earnings_within_5d: return None
     if t.has_negative_news and t.headline_score < -30: return None
     if m.fomc_24h or m.cpi_24h or m.jobs_24h: return None
-    if macro.risk_score <= -2: return None
+    if macro.risk_score <= -3: return None
     if not (t.price > t.sma_50 > t.sma_200): return None
     pct_above_50 = (t.price - t.sma_50) / t.sma_50
     if pct_above_50 < 0.003: return None
