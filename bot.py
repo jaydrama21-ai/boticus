@@ -249,7 +249,7 @@ WATCHLIST = property(get_watchlist) if False else CORE_WATCHLIST
 
 # ── Risk config ────────────────────────────────────────────────────────────────
 RISK = {
-    "stop_loss_atr_mult":    1.5,
+    "stop_loss_atr_mult":    1.8,
     "take_profit_atr_mult":  2.5,
     "max_position_pct":      0.05,
     "max_risk_per_trade_pct":0.02,
@@ -1016,18 +1016,27 @@ def fetch_price_data():
             atr_pct    = atr / price if price else 0
             earnings_5d = False
             earnings_dt = None
-            try:
-                cal = tick.calendar
-                if cal is not None and not cal.empty and "Earnings Date" in cal.index:
-                    ed = cal.loc["Earnings Date"]
-                    if hasattr(ed, "iloc"): ed = ed.iloc[0]
-                    if hasattr(ed, "date"): ed = ed.date()
-                    days = (ed - date.today()).days
-                    earnings_5d = 0 <= days <= 5
-                    earnings_dt = str(ed)
-            except: pass
+            # Skip earnings check for ETFs and known non-equity tickers
+            EARNINGS_SKIP = {"SPY","QQQ","IWM","DIA","MDY","VXX","EEM","EFA","FXI",
+                             "EWJ","IEUR","XLK","XLF","XLE","XLV","XBI","XRT","XLU",
+                             "XLI","XLP","TLT","GLD","SLV","USO","UUP","IJR","TQQQ",
+                             "SQQQ","SPXL","SPXS","SOXL","SOXS","UVXY","SVXY","TNA",
+                             "TZA","ARKK","ARKG","ARKW","ICLN","TAN","FAN","JETS",
+                             "PBW","KRE","XHB","ITB","VNQ","XLRE"}
+            if symbol not in EARNINGS_SKIP:
+                try:
+                    cal = tick.calendar
+                    if cal is not None and not cal.empty and "Earnings Date" in cal.index:
+                        ed = cal.loc["Earnings Date"]
+                        if hasattr(ed, "iloc"): ed = ed.iloc[0]
+                        if hasattr(ed, "date"): ed = ed.date()
+                        days = (ed - date.today()).days
+                        earnings_5d = 0 <= days <= 5
+                        earnings_dt = str(ed)
+                except: pass
             headlines = []; has_neg = False; headline_score = 0
             articles = []
+            hs = {}  # initialize before try in case news fetch fails partway
             try:
                 since = (datetime.now(ET) - timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
                 r = requests.get(
@@ -1055,13 +1064,13 @@ def fetch_price_data():
             t.has_negative_news  = has_neg
             t.headline_score     = headline_score
             t.headlines = headlines
-            if headlines:
-                hs2 = score_headlines(headlines, symbol)
-                t.macro_triggers = hs2.get("macro_triggers", [])
-                t.macro_alert    = hs2.get("macro_alert", False)
-                if t.macro_alert:
-                    log(f"  MACRO ALERT on {symbol}: "
-                        f"{', '.join(m['trigger'] for m in t.macro_triggers if m['impact']=='high')[:3]}")
+
+            # Store macro trigger data from the already-computed headline score
+            t.macro_triggers = hs.get("macro_triggers", []) if headlines else []
+            t.macro_alert    = hs.get("macro_alert", False) if headlines else False
+            if t.macro_alert:
+                high_triggers = [m['trigger'] for m in t.macro_triggers if m['impact'] == 'high']
+                log(f"  MACRO ALERT on {symbol}: {', '.join(high_triggers[:3])}")
             tickers[symbol] = t
             trend = "up" if price > sma_50 > sma_200 else "dn" if price < sma_50 else "->"
             earn  = " EARN" if earnings_5d else ""
@@ -1126,8 +1135,8 @@ def fetch_macro():
         gc_c = (float(gc_h["Close"].iloc[-1])-float(gc_h["Close"].iloc[-2]))/float(gc_h["Close"].iloc[-2])*100 if len(gc_h)>=2 else 0
         avg  = (es_c + nq_c) / 2
         macro.risk_score = (2 if avg > 0.5 else -2 if avg < -0.5 else 1 if avg > 0.2 else -1 if avg < -0.2 else 0)
-        if gc_c > 0.3: macro.risk_score -= 1
-        if gc_c < -0.3: macro.risk_score += 1
+        if gc_c > 1.5: macro.risk_score -= 1
+        if gc_c < -1.5: macro.risk_score += 1
         macro.futures_sentiment = (
             "RISK-ON"  if macro.risk_score >= 2 else
             "RISK-OFF" if macro.risk_score <= -2 else
@@ -2928,8 +2937,6 @@ def main():
     log(f"Paper mode: {PAPER_MODE} | Telegram: {'yes' if TELEGRAM_TOKEN else 'no'}")
     log("=" * 60)
 
-    process_tg_commands()
-
     if session == "closed" and mode == "scan":
         log("Keep-alive run — market closed, exiting cleanly")
         return
@@ -2942,6 +2949,9 @@ def main():
     fetch_macro()
     fetch_price_data()
     load_earnings_beats_from_digest()
+
+    # Process Telegram commands after data is loaded so /debug shows real values
+    process_tg_commands()
 
     if session in ("open", "pre_market") and now.hour == 9 and now.minute <= 45:
         log("Market open — running dynamic watchlist update...")
@@ -3070,18 +3080,29 @@ def main():
 
     macro_alerts = [(sym, t) for sym, t in tickers.items() if t.macro_alert]
     if macro_alerts:
-        alert_lines = []
-        for sym, t in macro_alerts[:5]:
-            high = [m for m in t.macro_triggers if m["impact"] == "high"]
-            for m in high[:2]:
-                alert_lines.append(
-                    f"{m['trigger'].upper()} on {sym}\n"
-                    f"{m['note']}\n"
-                    f"{m['headline'][:80]}"
-                )
-        if alert_lines:
-            _tg("MACRO TRIGGER ALERT\n\n" + "\n\n".join(alert_lines) +
-                f"\n\nVIX: {macro.vix:.1f} | Regime: {macro.market_regime}")
+        # Dedup: only send macro alert once per day, not every 5-min cycle
+        alert_flag = STATE_DIR / f"macro_alert_{date.today().isoformat()}.flag"
+        if not alert_flag.exists():
+            alert_lines = []
+            seen_triggers = set()
+            for sym, t in macro_alerts[:5]:
+                high = [m for m in t.macro_triggers if m["impact"] == "high"]
+                for m in high[:2]:
+                    key = m["trigger"]
+                    if key not in seen_triggers:
+                        seen_triggers.add(key)
+                        alert_lines.append(
+                            f"{m['trigger'].upper()} on {sym}\n"
+                            f"{m['note']}\n"
+                            f"{m['headline'][:80]}"
+                        )
+            if alert_lines:
+                _tg("MACRO TRIGGER ALERT\n\n" + "\n\n".join(alert_lines[:5]) +
+                    f"\n\nVIX: {macro.vix:.1f} | Regime: {macro.market_regime}")
+                alert_flag.write_text(date.today().isoformat())
+                log(f"Macro alert sent — suppressed for rest of today")
+        else:
+            log("Macro alert already sent today — skipping")
 
     run_position_monitor()
 
