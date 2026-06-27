@@ -1,49 +1,55 @@
 {
   "adjustments": [
     {
-      "param": "max_risk_per_trade",
-      "current": 2.0,
-      "suggested": 0.5,
-      "reason": "Negative expectancy of -1.12% per trade across 2677 signals. With 5 consecutive live losses, capital preservation is critical. Reduce risk until a positive edge is confirmed."
-    },
-    {
-      "param": "max_daily_loss",
-      "current": 2.0,
-      "suggested": 1.0,
-      "reason": "Recent streak of 5 consecutive losses indicates regime is unfavorable. Tighter daily loss limit protects against drawdown cascades."
+      "param": "rsi_min",
+      "current": 55,
+      "suggested": 60,
+      "reason": "RSI 60-72 bucket shows 26.0% WR vs 23.4% for 50-60 and 21.2% for 40-50. Narrowing to the strongest RSI zone improves signal quality."
     },
     {
       "param": "volume_min",
       "current": 1.2,
       "suggested": 2.0,
-      "reason": "Volume >2x shows 31.4% WR vs 22.1% for <1.1x and 26.7% for 1.1-2x. Higher volume threshold filters for strongest setups and improves win rate by ~5 percentage points."
+      "reason": "Volume >2x shows 32.6% WR vs 26.2% for 1.1-2x and 22.6% for <1.1x. Higher volume threshold significantly improves win rate at cost of fewer signals."
+    },
+    {
+      "param": "stop_atr_mult",
+      "current": 1.5,
+      "suggested": 2.0,
+      "reason": "With negative expectancy (-1.07%) driven by frequent losses at -2.98% avg, wider stops may reduce stop-outs on noise. Current risk/reward ratio (5.02/2.98=1.68) is insufficient at 23.9% WR \u2014 need fewer stopped-out trades."
+    },
+    {
+      "param": "target_atr_mult",
+      "current": 2.5,
+      "suggested": 3.5,
+      "reason": "Increasing target multiple improves the payoff ratio needed to achieve positive expectancy. At ~25-30% WR with tighter filters, need avg_win/avg_loss > 3.0 to break even."
+    },
+    {
+      "param": "max_risk_per_trade",
+      "current": 2.0,
+      "suggested": 1.0,
+      "reason": "Recent 5 trades are all losses, live WR is 45.5% but declining sharply. Reduce risk per trade to preserve capital during drawdown. Losses have higher avg criteria scores (92 vs 78) suggesting overconfidence on losing setups."
+    },
+    {
+      "param": "max_daily_loss",
+      "current": 2.0,
+      "suggested": 1.5,
+      "reason": "Consecutive loss streak (5 in a row) indicates need for tighter daily loss limits to prevent tilt and capital destruction."
     },
     {
       "param": "regime_filter",
       "current": "all",
       "suggested": "trending_up_only",
-      "reason": "Ranging regime shows only 14% backtest WR (and 45% live on small sample with recent 5 losses). Trending up shows 25% WR. Eliminate ranging regime trades entirely."
+      "reason": "Ranging regime shows only 15% backtest WR and 45% live WR (all live trades). Trending up shows 25% WR \u2014 best regime. Avoiding ranging markets eliminates worst-performing conditions."
     },
     {
-      "param": "rsi_min",
-      "current": 60,
-      "suggested": 62,
-      "reason": "RSI 60-72 range already shows best performance at 26.1% WR, but overall system is negative. Slight tightening to higher-conviction entries within the best-performing range."
-    },
-    {
-      "param": "target_atr_mult",
-      "current": 2.5,
-      "suggested": 2.0,
-      "reason": "With 23.7% win rate, the 2.5x target is too ambitious. Reducing to 2.0x should improve win rate while maintaining favorable risk-reward at 2.0/1.5 = 1.33R. Avg win of 5.16% vs avg loss 3.06% (1.69R) suggests targets are occasionally hit but a tighter target may convert more trades to wins."
-    },
-    {
-      "param": "stop_atr_mult",
-      "current": 1.5,
-      "suggested": 1.8,
-      "reason": "Wider stops may reduce the frequency of being stopped out on noise, improving the 23.7% win rate. Combined with the tighter target of 2.0x, this gives 1.11R but with potentially much higher win rate."
+      "param": "short_trades",
+      "current": "enabled",
+      "suggested": "disabled_or_reduced",
+      "reason": "Short WR is 20.2% vs Long WR 25.3%. Shorts underperform by 5 percentage points. Disabling or heavily filtering shorts removes drag on performance."
     }
   ],
-  "summary": "The system has a clearly negative expectancy (-1.12% per trade across 2677 signals) and 5 consecutive live losses. This is not a system that should be traded aggressively in its current form. The most critical action is dramatically reducing position size to preserve capital while filtering for only the highest-conviction setups: high volume (>2x), trending-up regimes only, and moderately tighter targets to convert more trades to wins.",
+  "summary": "The strategy has deeply negative expectancy (-1.07% per trade) across 3685 backtest signals, with recent live performance deteriorating to 5 consecutive losses. The most impactful changes are dramatically raising the volume threshold to 2.0x (capturing the 32.6% WR bucket), tightening RSI to 60-72, filtering out ranging regimes and short trades, and widening the risk/reward ratio. These filters will drastically reduce signal count but should flip expectancy positive. Risk sizing should be halved immediately given the active drawdown.",
   "confidence": "medium",
-  "priority_change": "Reduce max_risk_per_trade from 2.0% to 0.5% immediately \u2014 the system has negative expectancy and 5 consecutive losses, so capital preservation must take absolute priority before any other optimization."
+  "priority_change": "Increase volume_min from 1.2x to 2.0x \u2014 this single filter shows the largest performance differential (32.6% vs 22.6% WR) and directly addresses signal quality, potentially shifting expectancy from -1.07% toward breakeven or positive."
 }
