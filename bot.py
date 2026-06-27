@@ -1531,6 +1531,60 @@ def scan_short(symbol) -> dict | None:
     }
 
 
+def scan_diagnostic(symbol: str, direction: str) -> dict | None:
+    """
+    Returns a near-miss dict if the ticker passes hard gates but misses
+    criteria threshold. Saved to near_miss.json so we can see what's close.
+    """
+    t = tickers.get(symbol)
+    if not t or t.price == 0: return None
+    m = macro
+    if t.earnings_within_5d: return None
+    if m.fomc_24h or m.cpi_24h or m.jobs_24h: return None
+
+    if direction == "long":
+        if t.has_negative_news and t.headline_score < -30: return None
+        if macro.risk_score <= -3: return None
+        if not (t.price > t.sma_50 > t.sma_200): return None
+        pct_above_50 = (t.price - t.sma_50) / t.sma_50
+        if pct_above_50 < 0.003: return None
+        rsi_ok = RISK["rsi_min"] <= t.rsi_14 <= RISK["rsi_max"]
+        vol_ok = t.vol_ratio >= RISK["volume_min_mult"]
+        atr_ok = t.atr_pct <= RISK["atr_pct_max"]
+        # Compute partial criteria
+        trend_score = min(100, 90 + pct_above_50 * 200)
+        mom_score   = max(50, 100 - abs(t.rsi_14 - 62) * 2.5)
+        vol_score   = min(100, 55 + (t.vol_ratio - 1) * 25)
+        atr_score   = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
+        mac_score   = (100 if m.market_regime == "trending_up" else
+                       55  if m.market_regime == "ranging" else
+                       45  if m.market_regime == "volatile" else 20)
+        criteria = (trend_score*0.25 + mom_score*0.20 + vol_score*0.20 +
+                    atr_score*0.15 + mac_score*0.15)
+        blockers = []
+        if not rsi_ok:  blockers.append(f"RSI {t.rsi_14:.0f} (need {RISK['rsi_min']}-{RISK['rsi_max']})")
+        if not vol_ok:  blockers.append(f"Vol {t.vol_ratio:.1f}x (need {RISK['volume_min_mult']}x)")
+        if not atr_ok:  blockers.append(f"ATR {t.atr_pct:.2%} (max {RISK['atr_pct_max']:.2%})")
+        if criteria < 40: return None  # too far off, not worth logging
+        return {
+            "symbol": symbol, "direction": direction,
+            "criteria": round(criteria, 1), "rsi": t.rsi_14,
+            "vol": t.vol_ratio, "change_pct": t.change_pct,
+            "blockers": blockers or ["criteria below threshold"],
+            "scanned_at": datetime.now(ET).strftime("%H:%M"),
+        }
+    return None
+
+
+def save_near_misses(near_misses: list):
+    """Persist top near-misses for dashboard display."""
+    nm_file = STATE_DIR / "near_miss.json"
+    nm_file.write_text(json.dumps({
+        "updated_at": datetime.now(ET).isoformat(),
+        "near_misses": sorted(near_misses, key=lambda x: x["criteria"], reverse=True)[:15],
+    }, indent=2))
+
+
 def scan_all() -> list:
     session = get_market_session()
     tod_ok, tod_reason = is_good_trading_time()
@@ -1538,7 +1592,8 @@ def scan_all() -> list:
         log(f"Scan skipped: {tod_reason}")
         return []
     log(f"Scanning {len(get_watchlist())} tickers | {session} | Regime:{macro.market_regime} | VIX:{macro.vix:.1f}")
-    signals = []
+    signals    = []
+    near_misses = []
     for sym in get_watchlist():
         for fn in (scan_long, scan_short):
             s = fn(sym)
@@ -1547,8 +1602,25 @@ def scan_all() -> list:
                 log(f"  {'up' if s['direction']=='long' else 'dn'} SIGNAL: "
                     f"{s['symbol']} [{s['criteria']:.0f}] entry:${s['entry']:.2f} "
                     f"stop:${s['stop']:.2f} target:${s['target']:.2f} R/R:{s['rr']:.2f}")
+            else:
+                # Check if it was close (near-miss diagnostic)
+                direction = "long" if fn == scan_long else "short"
+                nm = scan_diagnostic(sym, direction)
+                if nm:
+                    near_misses.append(nm)
+
     signals.sort(key=lambda x: x["criteria"], reverse=True)
-    log(f"Scan complete: {len(signals)} signal(s)")
+    log(f"Scan complete: {len(signals)} signal(s) | {len(near_misses)} near-misses")
+
+    # Save near-misses for dashboard
+    if near_misses:
+        save_near_misses(near_misses)
+        top3 = sorted(near_misses, key=lambda x: x["criteria"], reverse=True)[:3]
+        log("Near-misses: " + " | ".join(
+            f"{n['symbol']} {n['criteria']:.0f} ({n['blockers'][0] if n['blockers'] else 'criteria'})"
+            for n in top3
+        ))
+
     return signals
 
 
@@ -2886,6 +2958,48 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
             reply(f"Feed error: {e}")
         return True
 
+    elif cmd == "testsignal":
+        # Force a mock signal through the full pipeline — confirms AI scoring and TG work
+        reply("Running test signal through pipeline...")
+        try:
+            # Find the highest-scoring long candidate right now
+            candidates = []
+            for sym, t in tickers.items():
+                if t.price > t.sma_50 and t.rsi_14 > 40 and t.vol_ratio > 0.5:
+                    score = (t.rsi_14 / 100 * 30) + (t.vol_ratio * 20) + (20 if t.price > t.sma_200 else 0)
+                    candidates.append((sym, score, t))
+            if not candidates:
+                reply("No tickers loaded yet — run a scan first.")
+                return True
+            sym, _, t = max(candidates, key=lambda x: x[1])
+            atr = t.atr_14 or t.price * 0.015
+            mock_sig = {
+                "symbol": sym, "type": "test_signal", "direction": "long",
+                "entry": t.price,
+                "stop":   round(t.price - RISK["stop_loss_atr_mult"] * atr, 2),
+                "target": round(t.price + RISK["take_profit_atr_mult"] * atr, 2),
+                "rr": round(RISK["take_profit_atr_mult"] / RISK["stop_loss_atr_mult"], 2),
+                "criteria": 65.0,
+                "scores": {"trend": 70, "momentum": 65, "volume": 60, "atr": 75, "macro": 55},
+                "notes": ["TEST SIGNAL — not a real trade", f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x"],
+                "headline_score": t.headline_score,
+                "reddit_trending": False,
+            }
+            scored = score_signal(mock_sig)
+            alert_signal(scored)
+            reply(
+                f"Test signal complete\n"
+                f"Symbol: {sym}\n"
+                f"AI score: {scored.get('ai_score', 0):.0f}/100\n"
+                f"Rec: {scored.get('ai_rec', '')}\n"
+                f"Reasoning: {scored.get('ai_reasoning', '')[:200]}\n"
+                f"Approved: {scored.get('approved', False)}\n"
+                f"(No order placed — test only)"
+            )
+        except Exception as e:
+            reply(f"Test signal error: {e}")
+        return True
+
     return False
 
 
@@ -3119,6 +3233,14 @@ def main():
         return
 
     signals = scan_all()
+
+    # Load near-misses for summary (saved inside scan_all)
+    nm_file = STATE_DIR / "near_miss.json"
+    near_misses = json.loads(nm_file.read_text()).get("near_misses", []) if nm_file.exists() else []
+
+    # Send scan summary every 30 min (confirms bot alive + shows what's building)
+    send_scan_summary(signals, near_misses)
+
     if not signals:
         log("No signals this run — exiting")
         commit_state_to_github()
@@ -3156,47 +3278,78 @@ def main():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _tg_escape(text: str) -> str:
-    """
-    FIX: Escape underscores within words for Telegram Markdown v1.
-    Strings like ALPACA_CLOSED, TIME_EXIT_DEAD, trending_up break the parser
-    because Markdown treats _ as an italic marker.
-    This escapes _ that appears between non-space characters (identifier underscores)
-    while leaving intentional *bold* and _italic_ formatting intact.
-    """
-    # Escape _ that appears between non-whitespace, non-formatting chars
+    """Escape underscores within identifier strings for Telegram Markdown v1."""
     return re.sub(r'(?<=[^\s*`\[])_(?=[^\s*`\]])', r'\\_', text)
+
+
+def _tg_send_raw(text: str) -> bool:
+    """Single send attempt. Returns True on success."""
+    safe = _tg_escape(text)
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": safe, "parse_mode": "Markdown"},
+            timeout=10
+        )
+        if resp.status_code == 200:
+            return True
+        if resp.status_code == 400 and "parse" in resp.text.lower():
+            # Markdown failed — strip formatting and retry as plain text
+            clean = text.replace("*","").replace("_","").replace("`","")
+            resp2 = requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": clean},
+                timeout=10
+            )
+            return resp2.status_code == 200
+        log(f"Telegram HTTP {resp.status_code}: {resp.text[:120]}", "WARN")
+        return False
+    except Exception as e:
+        log(f"Telegram send error: {e}", "WARN")
+        return False
 
 
 def _tg(text: str) -> None:
     """
-    FIX: Send a Telegram message with underscore escaping to prevent parse errors.
-    The original version failed on strings like ALPACA_CLOSED, TIME_EXIT_DEAD,
-    trending_up etc. because Telegram Markdown v1 interprets _ as italic markers.
-    Now pre-escapes identifier underscores before sending, with plain-text fallback.
+    Send a Telegram message with:
+    - Underscore escaping (prevents parse errors on ALPACA_CLOSED, trending_up etc)
+    - Message splitting (Telegram max is 4096 chars)
+    - Retry with backoff (3 attempts)
     """
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        log("Telegram: skipped — token or chat_id missing", "WARN")
         return
-    try:
-        # Escape identifier underscores before sending
-        safe_text = _tg_escape(text)
-        resp = requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": safe_text,
-                  "parse_mode": "Markdown"},
-            timeout=8
-        )
-        if resp.status_code == 400 and "parse" in resp.text.lower():
-            # Still failing — strip all formatting and send as plain text
-            clean = text.replace("*","").replace("_","").replace("`","").replace("[","").replace("]","")
-            resp = requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                json={"chat_id": TELEGRAM_CHAT_ID, "text": clean},
-                timeout=8
-            )
-        log(f"Telegram response: {resp.status_code} — {resp.text[:150]}")
-    except Exception as e:
-        log(f"Telegram error: {e}", "WARN")
+
+    # Split long messages at newlines near the 4000-char limit
+    MAX_LEN = 4000
+    chunks = []
+    if len(text) <= MAX_LEN:
+        chunks = [text]
+    else:
+        remaining = text
+        while remaining:
+            if len(remaining) <= MAX_LEN:
+                chunks.append(remaining)
+                break
+            # Find last newline before limit
+            split_at = remaining.rfind("\n", 0, MAX_LEN)
+            if split_at == -1:
+                split_at = MAX_LEN
+            chunks.append(remaining[:split_at])
+            remaining = remaining[split_at:].lstrip("\n")
+
+    for i, chunk in enumerate(chunks):
+        prefix = f"(part {i+1}/{len(chunks)})\n" if len(chunks) > 1 else ""
+        payload = prefix + chunk
+        # Retry up to 3 times with backoff
+        for attempt in range(3):
+            if _tg_send_raw(payload):
+                log(f"Telegram sent ({len(payload)} chars) attempt {attempt+1}")
+                break
+            wait = 2 ** attempt
+            log(f"Telegram retry {attempt+1}/3 in {wait}s...", "WARN")
+            time.sleep(wait)
+        else:
+            log(f"Telegram failed after 3 attempts — chunk {i+1}/{len(chunks)}", "ERROR")
 
 
 def alert_signal(sig: dict):
@@ -3286,6 +3439,47 @@ def send_startup_ping():
         f"{fg_str}  |  Watchlist: {len(get_watchlist())} tickers"
         f"{dash}"
     )
+
+
+def send_scan_summary(signals: list, near_misses: list):
+    """
+    Send a brief scan result to Telegram every cycle.
+    Even when 0 signals — confirms bot is alive and shows what's building.
+    """
+    now = datetime.now(ET)
+    fg  = macro.fear_greed
+
+    # Only send summary every 30 min to avoid spam (or always if signals found)
+    summary_flag = STATE_DIR / f"scan_summary_{now.strftime('%Y-%m-%d %H')}{'30' if now.minute >= 30 else '00'}.flag"
+    has_signals  = len(signals) > 0
+    if not has_signals and summary_flag.exists():
+        return  # Already sent this 30-min window
+    summary_flag.write_text(now.isoformat())
+
+    risk_str = {2:"RISK-ON", 1:"MILD-ON", 0:"NEUTRAL",
+                -1:"MILD-OFF", -2:"RISK-OFF", -3:"EXTREME-OFF"}.get(macro.risk_score, str(macro.risk_score))
+
+    lines = [
+        f"📡 *Scan {now.strftime('%H:%M ET')}*",
+        f"Regime: {macro.market_regime} | VIX: {macro.vix:.1f} | {risk_str}",
+        f"F&G: {fg.get('score',50):.0f} ({fg.get('rating','neutral')})",
+        f"Signals: {len(signals)} | Near-misses: {len(near_misses)}",
+    ]
+
+    if signals:
+        lines.append("\n*Signals firing:*")
+        for s in signals[:3]:
+            d = "📈" if s["direction"] == "long" else "📉"
+            lines.append(f"{d} {s['symbol']} criteria:{s['criteria']:.0f} R/R:{s['rr']:.1f}")
+
+    if near_misses and not signals:
+        top = sorted(near_misses, key=lambda x: x["criteria"], reverse=True)[:4]
+        lines.append("\n*Close but not yet:*")
+        for n in top:
+            blocker = n["blockers"][0] if n["blockers"] else "criteria"
+            lines.append(f"  {n['symbol']} {n['criteria']:.0f}/58 — {blocker}")
+
+    _tg("\n".join(lines))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3671,7 +3865,8 @@ def commit_state_to_github():
     files_to_commit = [
         "trades.json", "feedback.json", "backtest_latest.json",
         "auto_adjust_latest.json", "bot.log", "watchlist.json",
-        "research_digest.json", "fed_insights.json", "tg_offset.json", "paused.json",
+        "research_digest.json", "fed_insights.json", "tg_offset.json",
+        "paused.json", "near_miss.json",
     ]
     committed = 0
     for filename in files_to_commit:
@@ -3725,98 +3920,303 @@ def commit_state_to_github():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def generate_dashboard():
-    """Write a minimal dashboard.py and commit to GitHub."""
-    dashboard_source = (
-        'import streamlit as st\n'
-        'import json\n'
-        'from pathlib import Path\n'
-        'from datetime import datetime, date\n'
-        'import pandas as pd\n\n'
-        'st.set_page_config(page_title="Boticus", page_icon="bot", layout="wide")\n'
-        'DATA_DIR = Path("bot_state")\n'
-        'def load(f):\n'
-        '    p = DATA_DIR / f\n'
-        '    return json.loads(p.read_text()) if p.exists() else None\n\n'
-        'trades   = load("trades.json")   or []\n'
-        'feedback = load("feedback.json") or []\n'
-        'bt       = load("backtest_latest.json")\n'
-        'adj      = load("auto_adjust_latest.json")\n'
-        'wl_data  = load("watchlist.json")\n\n'
-        'open_t    = [t for t in trades if t.get("status") == "open"]\n'
-        'today_str = date.today().isoformat()\n'
-        'wins      = [t for t in feedback if t.get("result") == "win"]\n'
-        'losses    = [t for t in feedback if t.get("result") == "loss"]\n'
-        'total_pnl = sum(t.get("pnl_dollar", 0) for t in feedback)\n'
-        'wr        = len(wins)/len(feedback)*100 if feedback else 0\n'
-        'avg_win   = sum(t.get("pnl_pct",0) for t in wins)/len(wins) if wins else 0\n'
-        'avg_loss  = sum(t.get("pnl_pct",0) for t in losses)/len(losses) if losses else 0\n\n'
-        'st.title("Boticus")\n'
-        'st.caption(f"Updated {datetime.now().strftime(\'%b %d %H:%M ET\')}")\n'
-        'r1a,r1b = st.columns(2); r2a,r2b = st.columns(2); r3a,r3b = st.columns(2)\n'
-        'r1a.metric("Open Positions", len(open_t))\n'
-        'r1b.metric("Win Rate", f"{wr:.1f}%")\n'
-        'r2a.metric("Total P&L", f"${total_pnl:+,.0f}")\n'
-        'r2b.metric("Avg Win", f"{avg_win:+.1f}%")\n'
-        'r3a.metric("Trades", len(feedback))\n'
-        'r3b.metric("Avg Loss", f"{avg_loss:+.1f}%")\n'
-        'st.divider()\n'
-        'tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs(["Positions","P&L","Backtest","Adjust","Log","Watchlist"])\n\n'
-        'with tab1:\n'
-        '    if open_t:\n'
-        '        for t in open_t:\n'
-        '            unp = t.get("unrealized_pct", 0)\n'
-        '            st.write(f"{t.get(\'symbol\')} {t.get(\'direction\').upper()} {unp:+.1f}% entry=${t.get(\'entry_price\',0):.2f}")\n'
-        '    else:\n'
-        '        st.info("No open positions.")\n'
-        '    st.subheader("Today Closed")\n'
-        '    for t in [x for x in feedback if x.get("date","") == today_str]:\n'
-        '        st.write(f"{t[\'symbol\']} {t.get(\'direction\',\'\').upper()} {t.get(\'pnl_pct\',0):+.1f}% {t.get(\'close_reason\',\'\')}")\n\n'
-        'with tab2:\n'
-        '    if feedback:\n'
-        '        df = pd.DataFrame(feedback)\n'
-        '        df["date"] = pd.to_datetime(df["date"])\n'
-        '        df = df.sort_values("date")\n'
-        '        df["cum_pnl"] = df["pnl_dollar"].cumsum()\n'
-        '        st.line_chart(df.set_index("date")["cum_pnl"])\n'
-        '    else:\n'
-        '        st.info("No trade history yet.")\n\n'
-        'with tab3:\n'
-        '    if bt:\n'
-        '        st.metric("Win Rate", f"{bt.get(\'win_rate\',0):.1f}%")\n'
-        '        st.metric("Expectancy", f"{bt.get(\'expectancy_pct\',0):+.2f}%")\n'
-        '        st.metric("Long WR", f"{bt.get(\'long_win_rate\',0):.1f}%")\n'
-        '        st.metric("Short WR", f"{bt.get(\'short_win_rate\',0):.1f}%")\n'
-        '    else:\n'
-        '        st.info("No backtest data yet.")\n\n'
-        'with tab4:\n'
-        '    if adj:\n'
-        '        st.write(f"Confidence: {adj.get(\'confidence\',\'\').upper()}")\n'
-        '        st.write(adj.get("summary",""))\n'
-        '        for a in adj.get("adjustments",[]):\n'
-        '            st.write(f"{a[\'param\']}: {a[\'current\']} -> {a[\'suggested\']} — {a[\'reason\']}")\n'
-        '    else:\n'
-        '        st.info("No auto-adjust data yet.")\n\n'
-        'with tab5:\n'
-        '    log_path = DATA_DIR / "bot.log"\n'
-        '    if log_path.exists():\n'
-        '        st.code("\\n".join(log_path.read_text().strip().split("\\n")[-80:]))\n'
-        '    else:\n'
-        '        st.info("No log yet.")\n\n'
-        'with tab6:\n'
-        '    if wl_data:\n'
-        '        core = wl_data.get("core",[])\n'
-        '        active = wl_data.get("active",[])\n'
-        '        dynamic = [t for t in active if t not in core]\n'
-        '        st.write(f"Total: {len(active)} ({len(core)} core + {len(dynamic)} dynamic)")\n'
-        '        st.write("Core: " + ", ".join(core))\n'
-        '        if dynamic: st.write("Dynamic: " + ", ".join(dynamic))\n'
-        '    else:\n'
-        '        st.info("No watchlist data yet.")\n'
+    """Write dashboard.py and commit to GitHub."""
+    dashboard_source = """
+import streamlit as st, json, pandas as pd
+from pathlib import Path
+from datetime import datetime, date, timedelta
+
+st.set_page_config(page_title="Boticus", page_icon="🤖", layout="wide")
+st.markdown('''<style>
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+html,body,[class*="css"]{font-family:"Inter",sans-serif!important}
+.block-container{padding:1rem 1.5rem 3rem!important;max-width:1400px!important}
+[data-testid="metric-container"]{background:rgba(128,128,128,0.07);border:1px solid rgba(128,128,128,0.12);border-radius:12px;padding:14px 18px!important}
+[data-testid="stMetricValue"]{font-size:24px!important;font-weight:700!important}
+.card{border-radius:8px;padding:10px 14px;margin:5px 0;font-size:13px;border-left:3px solid}
+.cwin{background:rgba(34,197,94,0.08);border-color:#22c55e}
+.closs{background:rgba(239,68,68,0.08);border-color:#ef4444}
+.calert{background:rgba(234,179,8,0.08);border-color:#eab308}
+.cinfo{background:rgba(59,130,246,0.08);border-color:#3b82f6}
+.cnear{background:rgba(168,85,247,0.08);border-color:#a855f7}
+hr{opacity:.15!important}
+</style>''', unsafe_allow_html=True)
+
+st.markdown("<script>setTimeout(()=>window.location.reload(),180000)</script>", unsafe_allow_html=True)
+
+D = Path("bot_state")
+def load(f):
+    p = D/f; return json.loads(p.read_text()) if p.exists() else None
+
+trades   = load("trades.json")   or []
+feedback = load("feedback.json") or []
+bt       = load("backtest_latest.json")
+adj      = load("auto_adjust_latest.json")
+wl       = load("watchlist.json")
+nm       = load("near_miss.json")
+digest   = load("research_digest.json")
+
+open_t    = [t for t in trades if t.get("status")=="open"]
+today_str = date.today().isoformat()
+week_str  = (date.today()-timedelta(days=7)).isoformat()
+wins      = [t for t in feedback if t.get("result")=="win"]
+losses    = [t for t in feedback if t.get("result")=="loss"]
+today_fb  = [t for t in feedback if t.get("date","")==today_str]
+week_fb   = [t for t in feedback if t.get("date","")>=week_str]
+total_pnl = sum(t.get("pnl_dollar",0) for t in feedback)
+today_pnl = sum(t.get("pnl_dollar",0) for t in today_fb)
+week_pnl  = sum(t.get("pnl_dollar",0) for t in week_fb)
+wr        = len(wins)/len(feedback)*100 if feedback else 0
+avg_win   = sum(t.get("pnl_pct",0) for t in wins)/len(wins) if wins else 0
+avg_loss  = sum(t.get("pnl_pct",0) for t in losses)/len(losses) if losses else 0
+
+# ── Header ───────────────────────────────────────────────────────
+st.title("🤖 Boticus")
+st.caption(f"Refreshes every 3 min · {datetime.now().strftime('%b %d %H:%M ET')}")
+
+# ── Top metrics ──────────────────────────────────────────────────
+c1,c2,c3,c4,c5,c6 = st.columns(6)
+c1.metric("Positions", f"{len(open_t)}/6")
+c2.metric("Win Rate",  f"{wr:.1f}%", delta=f"{wr-50:.1f}%")
+c3.metric("Today P&L", f"${today_pnl:+,.0f}")
+c4.metric("Week P&L",  f"${week_pnl:+,.0f}")
+c5.metric("Avg Win",   f"{avg_win:+.1f}%")
+c6.metric("Avg Loss",  f"{avg_loss:+.1f}%")
+
+st.divider()
+
+# ── Near-misses alert bar ─────────────────────────────────────────
+if nm and nm.get("near_misses"):
+    top_nm = nm["near_misses"][:3]
+    updated = nm.get("updated_at","")[:16].replace("T"," ")
+    nm_str  = "  |  ".join([
+        f"{n['symbol']} {n['criteria']:.0f}/58 — {n['blockers'][0] if n['blockers'] else 'criteria'}"
+        for n in top_nm
+    ])
+    st.markdown(
+        f'<div class="card calert">📡 <b>Near-misses as of {updated} ET:</b>  {nm_str}</div>',
+        unsafe_allow_html=True
     )
+
+# ── Tabs ──────────────────────────────────────────────────────────
+t1,t2,t3,t4,t5,t6,t7,t8 = st.tabs(
+    ["📊 Positions","📈 P&L","🔭 Near-Misses","📉 Backtest","🔧 Adjust","📋 Log","🗂 Watchlist","📚 Research"]
+)
+
+# ── Tab 1: Positions ─────────────────────────────────────────────
+with t1:
+    if open_t:
+        for pos in open_t:
+            unp  = pos.get("unrealized_pct",0)
+            icon = "🟢" if unp>0 else "🔴" if unp<0 else "⚪"
+            trail = " 📌" if pos.get("trailing_stop") else ""
+            with st.expander(f"{icon} **{pos.get('symbol')}**  {pos.get('direction','').upper()}  {unp:+.1f}%{trail}"):
+                a,b,c,d = st.columns(4)
+                a.metric("Entry",   f"${pos.get('entry_price',0):.2f}")
+                b.metric("Current", f"${pos.get('current_price', pos.get('entry_price',0)):.2f}")
+                c.metric("Stop",    f"${pos.get('stop_loss',0):.2f}")
+                d.metric("Target",  f"${pos.get('take_profit',0):.2f}")
+                e,f = st.columns(2)
+                e.metric("Shares",   pos.get("shares",0))
+                f.metric("AI Score", f"{pos.get('ai_score','—')}/100")
+                st.caption(f"Opened: {pos.get('opened_at','')[:16].replace('T',' ')}  |  "
+                          f"P&L: ${pos.get('unrealized_pl',0):+.2f}")
+    else:
+        st.markdown('<div class="card cinfo">No open positions right now — bot is scanning for entries.</div>',
+                    unsafe_allow_html=True)
+    st.divider()
+    st.subheader("Today's Closed Trades")
+    if today_fb:
+        for t in today_fb:
+            pnl = t.get("pnl_pct",0)
+            st.markdown(
+                f'<div class="card {"cwin" if pnl>0 else "closs"}">'
+                f'{"🟢" if pnl>0 else "🔴"} <b>{t["symbol"]}</b> {t.get("direction","").upper()} | '
+                f'{pnl:+.1f}% | ${t.get("pnl_dollar",0):+.0f} | {t.get("close_reason","—")}</div>',
+                unsafe_allow_html=True
+            )
+    else:
+        st.markdown('<div class="card cinfo">No completed trades today.</div>', unsafe_allow_html=True)
+
+# ── Tab 2: P&L ──────────────────────────────────────────────────
+with t2:
+    if feedback:
+        df = pd.DataFrame(feedback)
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date")
+        df["cum_pnl"] = df["pnl_dollar"].cumsum()
+        st.subheader("Cumulative P&L")
+        st.line_chart(df.set_index("date")["cum_pnl"], use_container_width=True, height=220)
+        col1, col2 = st.columns(2)
+        with col1:
+            if "regime" in df.columns:
+                st.subheader("Win Rate by Regime")
+                rg = df.groupby("regime").apply(
+                    lambda x: pd.Series({"WR": f"{sum(v>0 for v in x['pnl_dollar'])/len(x)*100:.0f}%",
+                                         "Trades": len(x),
+                                         "P&L": f"${sum(x['pnl_dollar']):+.0f}"})
+                ).reset_index()
+                st.dataframe(rg, use_container_width=True, hide_index=True)
+        with col2:
+            st.subheader("Exit Breakdown")
+            reasons = {"Target": "TARGET", "Stop": "STOP", "EOD": "EOD",
+                       "Time": "TIME", "Emergency": "EMERGENCY", "Alpaca": "ALPACA"}
+            ex = pd.DataFrame([{"Exit": k, "Count": sum(1 for t in feedback if v in t.get("close_reason",""))}
+                               for k,v in reasons.items()])
+            st.dataframe(ex, use_container_width=True, hide_index=True)
+        st.subheader("All Trades")
+        disp = df[["date","symbol","direction","pnl_pct","pnl_dollar","close_reason","regime"]].copy()
+        disp = disp.sort_values("date", ascending=False)
+        disp.columns = ["Date","Sym","Dir","P&L%","P&L$","Reason","Regime"]
+        disp["P&L%"] = disp["P&L%"].map(lambda x: f"{x:+.1f}%")
+        disp["P&L$"] = disp["P&L$"].map(lambda x: f"${x:+.0f}")
+        disp["Date"] = disp["Date"].dt.strftime("%m/%d")
+        st.dataframe(disp.head(50), use_container_width=True, hide_index=True)
+    else:
+        st.markdown('<div class="card cinfo">No closed trades yet.</div>', unsafe_allow_html=True)
+
+# ── Tab 3: Near-Misses ──────────────────────────────────────────
+with t3:
+    st.subheader("Near-Miss Signals")
+    st.caption("Tickers that passed hard gates but missed criteria threshold. Updated every scan.")
+    if nm and nm.get("near_misses"):
+        updated = nm.get("updated_at","")[:16].replace("T"," ")
+        st.caption(f"Last scan: {updated} ET")
+        for n in nm["near_misses"][:12]:
+            pct  = n.get("change_pct", 0)
+            crit = n.get("criteria", 0)
+            gap  = 58 - crit  # how far from threshold (long min is 58)
+            color = "cwin" if gap < 5 else "calert" if gap < 10 else "cnear"
+            blocker = n["blockers"][0] if n.get("blockers") else "below threshold"
+            st.markdown(
+                f'<div class="card {color}">' +
+                f'<b>{n["symbol"]}</b> {n.get("direction","long").upper()} — ' +
+                f'Criteria: {crit:.0f}/58 (gap: {gap:.0f}) | ' +
+                f'RSI: {n.get("rsi",0):.0f} | Vol: {n.get("vol",0):.1f}x | ' +
+                f'Change: {pct:+.1f}% | Blocked by: {blocker}' +
+                '</div>',
+                unsafe_allow_html=True
+            )
+    else:
+        st.markdown('<div class="card cinfo">No near-miss data yet — run a scan first.</div>',
+                    unsafe_allow_html=True)
+
+# ── Tab 4: Backtest ─────────────────────────────────────────────
+with t4:
+    if bt:
+        a,b,c,d = st.columns(4)
+        a.metric("Win Rate",   f"{bt.get('win_rate',0):.1f}%")
+        b.metric("Expectancy", f"{bt.get('expectancy_pct',0):+.2f}%")
+        c.metric("Long WR",    f"{bt.get('long_win_rate',0):.1f}%",
+                 delta=f"{bt.get('long_signals',0)} signals")
+        d.metric("Short WR",   f"{bt.get('short_win_rate',0):.1f}%",
+                 delta=f"{bt.get('short_signals',0)} signals")
+        col1, col2 = st.columns(2)
+        with col1:
+            if bt.get("regime_stats"):
+                st.subheader("By Regime")
+                rg = []
+                for r,s in bt["regime_stats"].items():
+                    tot = s["wins"]+s["losses"]
+                    if tot: rg.append({"Regime":r,"WR":f"{s['wins']/tot*100:.0f}%","N":tot})
+                st.dataframe(pd.DataFrame(rg), use_container_width=True, hide_index=True)
+        with col2:
+            if bt.get("rsi_win_rates"):
+                st.subheader("RSI Buckets")
+                rsi_df = pd.DataFrame([{"RSI":k,"WR":f"{v:.0f}%"} for k,v in bt["rsi_win_rates"].items()])
+                st.dataframe(rsi_df, use_container_width=True, hide_index=True)
+    else:
+        st.markdown('<div class="card cinfo">No backtest data yet.</div>', unsafe_allow_html=True)
+
+# ── Tab 5: Adjust ───────────────────────────────────────────────
+with t5:
+    if adj:
+        conf = adj.get("confidence","").upper()
+        icon = "🟢" if conf=="HIGH" else "🟡" if conf=="MEDIUM" else "🔴"
+        st.markdown(f'<div class="card calert">{icon} <b>Confidence: {conf}</b><br>{adj.get("summary","")}</div>',
+                    unsafe_allow_html=True)
+        st.write(f"**Priority:** {adj.get('priority_change','')}")
+        for a in adj.get("adjustments",[]):
+            st.markdown(
+                f'<div class="card calert">🔧 <b>{a["param"]}</b>: {a["current"]} → <b>{a["suggested"]}</b>' +
+                f'<br><span style="opacity:.7;font-size:12px">{a["reason"]}</span></div>',
+                unsafe_allow_html=True
+            )
+        st.warning("Edit RISK dict in bot.py to apply changes.")
+    else:
+        st.markdown('<div class="card cinfo">No auto-adjust data yet.</div>', unsafe_allow_html=True)
+
+# ── Tab 6: Log ──────────────────────────────────────────────────
+with t6:
+    log_path = D/"bot.log"
+    if log_path.exists():
+        lines = log_path.read_text().strip().split("\n")[-100:]
+        colored = []
+        for line in lines:
+            if "ERROR"    in line: colored.append(f"🔴 {line}")
+            elif "WARN"   in line: colored.append(f"🟡 {line}")
+            elif "APPROVED" in line: colored.append(f"✅ {line}")
+            elif "REJECTED" in line: colored.append(f"❌ {line}")
+            elif "SIGNAL"  in line: colored.append(f"📡 {line}")
+            elif "CLOSED"  in line: colored.append(f"💰 {line}")
+            elif "EMERGENCY" in line: colored.append(f"🚨 {line}")
+            elif "Trailing" in line: colored.append(f"📌 {line}")
+            elif "Near-miss" in line: colored.append(f"🔭 {line}")
+            elif "Macro alert" in line: colored.append(f"🟣 {line}")
+            else: colored.append(f"   {line}")
+        st.code("\n".join(colored), language="text")
+    else:
+        st.markdown('<div class="card cinfo">No log yet.</div>', unsafe_allow_html=True)
+
+# ── Tab 7: Watchlist ────────────────────────────────────────────
+with t7:
+    if wl:
+        core    = wl.get("core",[])
+        active  = wl.get("active",[])
+        dynamic = [t for t in active if t not in core]
+        a,b,c = st.columns(3)
+        a.metric("Total",   len(active))
+        b.metric("Core",    len(core))
+        c.metric("Dynamic", len(dynamic))
+        st.caption(f"Updated: {wl.get('updated_at','')[:16].replace('T',' ')}")
+        st.subheader("Core (always scanned)")
+        st.markdown(f'<div class="card cinfo">{", ".join(core)}</div>', unsafe_allow_html=True)
+        if dynamic:
+            st.subheader("Dynamic (today\'s movers)")
+            st.markdown(f'<div class="card cwin">{", ".join(dynamic)}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="card cinfo">Watchlist not loaded yet.</div>', unsafe_allow_html=True)
+
+# ── Tab 8: Research ─────────────────────────────────────────────
+with t8:
+    if digest:
+        fg = digest.get("fear_greed",{})
+        st.metric("Fear & Greed", f"{fg.get('score',50):.0f}/100 ({fg.get('rating','neutral')})",
+                  delta=f"{fg.get('change',0):+.1f} from yesterday")
+        trending = digest.get("trending",[])
+        if trending:
+            st.markdown(f'<div class="card cinfo"><b>Retail trending:</b> {", ".join(trending[:12])}</div>',
+                        unsafe_allow_html=True)
+        insights = digest.get("insights",[])
+        if insights:
+            st.subheader("Insights")
+            for i in insights[:6]:
+                conf  = i.get("confidence","")
+                color = "cwin" if conf=="high" else "calert" if conf=="medium" else "cnear"
+                st.markdown(
+                    f'<div class="card {color}">{i.get("finding","")}' +
+                    (f' — <i>{i.get("actionable","")}</i>' if i.get("actionable") else "") +
+                    f' [{conf}]</div>', unsafe_allow_html=True
+                )
+        st.caption(f"Digest from: {digest.get('updated_at','')[:10]}")
+    else:
+        st.markdown('<div class="card cinfo">No research digest yet. Trigger mode=research to generate.</div>',
+                    unsafe_allow_html=True)
+"""
 
     dash_file = Path("dashboard.py")
     dash_file.write_text(dashboard_source)
-    log(f"Dashboard written to {dash_file}")
+    log(f"Dashboard v2 written to {dash_file}")
 
     import base64
     if GITHUB_TOKEN and GITHUB_REPO:
@@ -3833,28 +4233,14 @@ def generate_dashboard():
             if r.status_code == 200:
                 sha = r.json().get("sha")
             payload = {
-                "message": f"bot: generate dashboard [{datetime.now(ET).strftime('%Y-%m-%d %H:%M ET')}]",
+                "message": f"bot: dashboard v2 [{datetime.now(ET).strftime('%Y-%m-%d %H:%M ET')}]",
                 "content": b64, "branch": "main",
             }
-            if sha:
-                payload["sha"] = sha
+            if sha: payload["sha"] = sha
             r = requests.put(api_url, headers=headers, json=payload, timeout=15)
-            if r.status_code in (200, 201):
-                log("dashboard.py committed to GitHub repo successfully")
-            else:
-                log(f"dashboard.py commit failed: {r.status_code} {r.text[:150]}", "WARN")
+            log(f"Dashboard commit: {r.status_code}")
         except Exception as e:
-            log(f"dashboard.py commit error: {e}", "WARN")
-    else:
-        log("GITHUB_TOKEN not set — dashboard.py written locally only", "WARN")
+            log(f"Dashboard commit error: {e}", "WARN")
 
-    _tg(
-        f"Dashboard updated\n"
-        f"dashboard.py committed to boticus repo\n"
-        f"{DASHBOARD_URL if DASHBOARD_URL else 'Add DASHBOARD_URL secret once deployed'}"
-    )
+    _tg("Dashboard v2 deployed — 8 tabs, near-miss panel, scan summary, research digest")
     return str(dash_file)
-
-
-if __name__ == "__main__":
-    main()
