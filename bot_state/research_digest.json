@@ -1,9 +1,9 @@
 {
-  "updated_at": "2026-06-18T09:33:48.123437-04:00",
+  "updated_at": "2026-06-27T16:04:51.469742-04:00",
   "source": "StockTwits + CNN Fear & Greed + Fed + Earnings",
   "fear_greed": {
-    "score": 32.0,
-    "rating": "fear",
+    "score": 24.8,
+    "rating": "extreme fear",
     "change": 0.0,
     "bullish": false,
     "bearish": true
@@ -14,103 +14,90 @@
   "bear_tickers": [],
   "fed_speeches": [
     {
+      "title": "Cook, Welcome Remarks",
+      "speaker": "Cook",
+      "url": "https://www.federalreserve.gov/newsevents/speech/cook20260624a.htm"
+    },
+    {
+      "title": "Waller, Welcoming Remarks on the International Role of the U.S. Dollar",
+      "speaker": "Waller",
+      "url": "https://www.federalreserve.gov/newsevents/speech/waller20260622a.htm"
+    },
+    {
       "title": "Barr, Deregulating in a Financial Boom: What Could Go Wrong?",
       "speaker": "Barr",
       "url": "https://www.federalreserve.gov/newsevents/speech/barr20260606a.htm"
-    },
-    {
-      "title": "Powell, Acceptance Remarks",
-      "speaker": "Powell",
-      "url": "https://www.federalreserve.gov/newsevents/speech/powell20260531a.htm"
-    },
-    {
-      "title": "Bowman, A Framework for Practical Monetary Policy Decision Making",
-      "speaker": "Bowman",
-      "url": "https://www.federalreserve.gov/newsevents/speech/bowman20260529a.htm"
     }
   ],
   "earnings": [],
   "insights": [
     {
-      "finding": "Fear & Greed Index at 32 indicates fear territory but holding steady with 0 change, suggesting capitulation may be stabilizing",
-      "tickers": [
-        "SPY",
-        "QQQ"
-      ],
-      "edge": "When fear stabilizes without further deterioration, it often precedes short-term bounces as selling pressure exhausts. Consider contrarian long entries with tight stops.",
-      "confidence": "medium",
-      "source": "F&G",
-      "actionable": "Monitor for reversal signals in major indices; consider small long positions in oversold quality names with strong support levels"
-    },
-    {
-      "finding": "Absence of heavily bullish or bearish stocks on StockTwits indicates lack of retail conviction and low engagement",
-      "tickers": [],
-      "edge": "Low retail sentiment extremes suggest institutional control of price action. Retail typically piles in at extremes, so their absence indicates we're mid-cycle rather than at turning points.",
-      "confidence": "medium",
-      "source": "StockTwits",
-      "actionable": "Avoid chasing momentum plays; focus on fundamental-driven strategies as retail FOMO/panic is not currently driving volatility"
-    },
-    {
-      "finding": "Fear level at 32 combined with neutral retail sentiment shows disconnect between broader market fear and individual stock enthusiasm",
-      "tickers": [],
-      "edge": "This divergence suggests broad uncertainty without clear directional conviction. Markets often chop in tight ranges during this condition until a catalyst emerges.",
-      "confidence": "medium",
-      "source": "F&G",
-      "actionable": "Reduce position sizes and favor range-bound strategies (iron condors, spreads); wait for Fear & Greed to break above 40 or below 25 for directional trades"
-    },
-    {
-      "finding": "Barr warns about deregulation risks during financial boom cycle, suggesting increased regulatory scrutiny ahead",
+      "finding": "Governor Barr warned against deregulating during a financial boom, signaling continued Fed resistance to rolling back bank oversight. This suggests tighter-for-longer regulatory posture on large financial institutions, potentially limiting capital return capacity.",
       "tickers": [
         "JPM",
         "BAC",
         "C",
-        "GS",
-        "MS",
-        "WFC"
+        "WFC",
+        "GS"
       ],
       "impact": "bearish",
-      "confidence": "high",
-      "source": "Fed",
-      "actionable": "Reduce exposure to large-cap banks and financial institutions. Deregulation concerns signal potential tightening of oversight and compliance costs, particularly for systemically important banks. Consider rotating into regional banks or non-bank financials less affected by federal supervision changes."
-    },
-    {
-      "finding": "Powell receives 'Profile in Courage Award' suggesting political capital and stability in Fed leadership through 2026",
-      "tickers": [
-        "TLT",
-        "IEF",
-        "SPY",
-        "QQQ"
-      ],
-      "impact": "neutral",
       "confidence": "medium",
       "source": "Fed",
-      "actionable": "Implies continuity in Fed policy and reduced leadership uncertainty. Maintain current portfolio allocation with slight bias toward stability. Powell's strengthened position suggests policy predictability, supporting moderate positions in both equities and treasuries without dramatic shifts."
+      "actionable": "Reduce overweight positions in large-cap bank stocks reliant on deregulation tailwinds; avoid adding exposure ahead of potential regulatory tightening headlines. Consider defensive positioning within financials via regional banks less subject to Fed oversight."
     },
     {
-      "finding": "Bowman discusses 'practical monetary policy decision making' framework in May 2026, indicating potential policy flexibility ahead",
+      "finding": "Governor Waller's remarks focused on the international role of the U.S. Dollar at a dedicated Fed conference, signaling institutional commitment to USD reserve currency status. This implies no near-term Fed support for dollar weakening policies.",
       "tickers": [
-        "DXY",
+        "UUP",
         "GLD",
-        "TLT",
-        "UUP"
+        "FXE",
+        "EEM"
       ],
-      "impact": "neutral",
+      "impact": "bullish",
       "confidence": "medium",
       "source": "Fed",
-      "actionable": "Speech timing and 'practical framework' language suggests Fed is preparing markets for data-dependent, flexible policy adjustments. Position for moderate volatility in dollar and rates. Consider straddles on Treasury ETFs and small defensive gold allocation as policy uncertainty hedge."
+      "actionable": "Maintain long USD exposure via UUP or short EUR/USD. Temper gold and emerging market allocations that rely on sustained dollar weakness as a primary thesis driver."
     },
     {
-      "finding": "Multiple Fed officials speaking in late May-early June 2026 timeframe suggests coordinated messaging campaign ahead of potential policy shift",
+      "finding": "Governor Cook's welcome remarks at a Small Business Symposium hosted by the Cleveland Fed highlight continued Fed attention to credit access and health of small businesses, a key inflation and employment indicator at the grassroots level.",
+      "tickers": [
+        "SBA",
+        "BLUE",
+        "SBIZ",
+        "HTLF",
+        "BANR"
+      ],
+      "impact": "neutral",
+      "confidence": "low",
+      "source": "Fed",
+      "actionable": "Monitor small business lending data and community bank earnings for early signals of credit tightening or stress. Community and regional banks with high small business loan concentration warrant closer scrutiny."
+    },
+    {
+      "finding": "Barr's speech title 'Deregulating in a Financial Boom: What Could Go Wrong?' explicitly frames current market conditions as a boom, suggesting the Fed views asset valuations and credit conditions as elevated \u2014 a potential precursor to more hawkish macro risk language.",
       "tickers": [
         "SPY",
-        "VIX",
+        "QQQ",
+        "XLF",
         "TLT"
       ],
       "impact": "bearish",
       "confidence": "medium",
       "source": "Fed",
-      "actionable": "Concentrated Fed communication typically precedes policy changes or market guidance. Increase VIX long exposure or purchase SPY puts with 30-45 day expiration. Reduce leverage and build cash positions ahead of potential volatility spike following coordinated Fed messaging."
+      "actionable": "Consider hedging broad equity exposure with put spreads on SPY or XLF. TLT may benefit modestly if Fed rhetoric shifts toward financial stability risk, dampening risk appetite. Avoid chasing high-beta momentum names in this environment."
+    },
+    {
+      "finding": "The combination of a USD conference (Waller) and a financial stability/deregulation warning (Barr) within the same week signals a Fed that is focused on systemic risk and dollar credibility \u2014 both consistent with rates staying higher for longer rather than near-term cuts.",
+      "tickers": [
+        "TLT",
+        "SHY",
+        "ZROZ",
+        "CME"
+      ],
+      "impact": "bearish",
+      "confidence": "medium",
+      "source": "Fed",
+      "actionable": "Reduce duration risk in bond portfolios; avoid long TLT or ZROZ as rate cut expectations may be further deferred. CME Group could benefit from sustained rates volatility driving derivatives volume."
     }
   ],
-  "summary": "Market sentiment shows stabilized fear (F&G: 32, unchanged) with absent retail conviction on individual stocks, indicating a low-volatility, directionless environment. This setup favors patience and range-bound strategies over directional bets until clearer sentiment extremes or catalysts emerge. Contrarian opportunities may develop if fear stabilization continues without breakdown. Fed officials are delivering coordinated speeches in late May-early June 2026, with Barr warning about deregulation risks during financial boom conditions while Bowman discusses policy flexibility. This suggests the Fed is preparing markets for potential regulatory tightening and data-dependent policy adjustments. The coordinated timing of multiple speeches indicates heightened importance of upcoming policy decisions, warranting defensive positioning across financials and rate-sensitive assets."
+  "summary": "This week's Fed communications collectively paint a picture of a central bank focused on financial stability risks, dollar credibility, and resistance to premature deregulation \u2014 all of which point toward a higher-for-longer rate posture. Barr's explicit 'financial boom' framing is a notable macro signal that the Fed sees elevated systemic risk, which is incrementally bearish for rate-sensitive equities and large bank stocks banking on deregulation. Investors should reduce duration exposure, hedge financials, and maintain USD strength positioning until clearer dovish signals emerge."
 }
