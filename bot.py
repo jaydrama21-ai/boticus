@@ -3319,13 +3319,13 @@ def main():
     session = get_market_session()
     mode    = os.environ.get("RUN_MODE", "scan")
 
-    # Housekeeping — purge stale flag files
-    cleanup_flag_files()
-
     log("=" * 60)
     log(f"TRADING BOT RUN | {now.strftime('%Y-%m-%d %H:%M ET')} | {session} | mode={mode}")
     log(f"Paper mode: {PAPER_MODE} | Telegram: {'yes' if TELEGRAM_TOKEN else 'no'}")
     log("=" * 60)
+
+    # Housekeeping — purge stale flag files (after logging is live)
+    cleanup_flag_files()
 
     if session == "closed" and mode == "scan":
         log("Keep-alive run — market closed, exiting cleanly")
