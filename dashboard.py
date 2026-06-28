@@ -31,7 +31,6 @@ adj      = load("auto_adjust_latest.json")
 wl       = load("watchlist.json")
 nm       = load("near_miss.json")
 digest   = load("research_digest.json")
-lr       = load("last_run.json")
 
 open_t    = [t for t in trades if t.get("status")=="open"]
 today_str = date.today().isoformat()
@@ -51,22 +50,22 @@ avg_loss  = sum(t.get("pnl_pct",0) for t in losses)/len(losses) if losses else 0
 st.title("🤖 Boticus")
 st.caption(f"Refreshes every 3 min · {datetime.now().strftime('%b %d %H:%M ET')}")
 
+lr = load("last_run.json")
 if lr:
-    last_ts   = lr.get("timestamp","")[:16].replace("T"," ")
-    lr_regime = lr.get("regime","unknown")
-    lr_vix    = lr.get("vix", 0)
-    lr_risk   = lr.get("risk_score", 0)
-    lr_sigs   = lr.get("signals", 0)
-    risk_str  = {2:"RISK-ON",1:"MILD-ON",0:"NEUTRAL",-1:"MILD-OFF",-2:"RISK-OFF",-3:"EXTREME-OFF"}.get(lr_risk,"?")
-    sig_str   = f"{lr_sigs} signal(s)" if lr_sigs else "0 signals"
-    color     = "#22c55e" if lr_sigs > 0 else "#aaa"
+    ts   = lr.get("timestamp","")[:16].replace("T"," ")
+    reg  = lr.get("regime","?")
+    vix  = lr.get("vix", 0)
+    risk = lr.get("risk_score", 0)
+    sigs = lr.get("signals", 0)
+    rstr = {2:"RISK-ON",1:"MILD-ON",0:"NEUTRAL",-1:"MILD-OFF",-2:"RISK-OFF",-3:"EXTREME-OFF"}.get(risk,"?")
+    col  = "#22c55e" if sigs > 0 else "#aaa"
     st.markdown(
-        f'<div style="font-size:13px;color:{color};margin:0 0 10px">' +
-        f'🟢 Last run: <b>{last_ts} ET</b> · {lr_regime} · VIX {lr_vix:.1f} · {risk_str} · {sig_str}' +
-        '</div>', unsafe_allow_html=True
+        f'<div style="font-size:13px;color:{col};margin:0 0 8px">' +
+        f'Last run: <b>{ts} ET</b> · {reg} · VIX {vix:.1f} · {rstr} · {sigs} signal(s)</div>',
+        unsafe_allow_html=True
     )
 else:
-    st.markdown('<div style="font-size:13px;color:#aaa;margin:0 0 10px">⏳ Waiting for first bot run...</div>',
+    st.markdown('<div style="font-size:13px;color:#aaa;margin:0 0 8px">Waiting for first bot run...</div>',
                 unsafe_allow_html=True)
 
 # ── Top metrics ──────────────────────────────────────────────────
