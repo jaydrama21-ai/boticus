@@ -409,6 +409,103 @@ def calc_atr(highs, lows, closes, period=14):
     return round(float(atr), 4)
 
 
+def calc_adx(highs, lows, closes, period=14) -> float:
+    """
+    Average Directional Index — trend STRENGTH, not direction (0-100).
+    > 25: trending (good for our signals)
+    < 20: choppy/ranging (avoid)
+    > 40: strong trend (boost signal confidence)
+    """
+    if len(closes) < period * 2 + 1: return 25.0
+    tr_list, dm_plus, dm_minus = [], [], []
+    for i in range(1, len(closes)):
+        tr = max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1]))
+        tr_list.append(tr)
+        up   = highs[i]  - highs[i-1]
+        down = lows[i-1] - lows[i]
+        dm_plus.append(up   if up > down and up > 0   else 0.0)
+        dm_minus.append(down if down > up and down > 0 else 0.0)
+    def wilder_smooth(data, p):
+        s = [sum(data[:p])]
+        for x in data[p:]: s.append(s[-1] - s[-1]/p + x)
+        return s
+    atr_s = wilder_smooth(tr_list, period)
+    dp_s  = wilder_smooth(dm_plus,  period)
+    dm_s  = wilder_smooth(dm_minus, period)
+    di_p = [100*dp/a if a>0 else 0 for dp,a in zip(dp_s,atr_s)]
+    di_m = [100*dm/a if a>0 else 0 for dm,a in zip(dm_s,atr_s)]
+    dx   = [100*abs(p-m)/(p+m) if (p+m)>0 else 0 for p,m in zip(di_p,di_m)]
+    adx  = wilder_smooth(dx, period)
+    return round(float(adx[-1]), 1) if adx else 25.0
+
+
+def detect_rsi_divergence(closes: np.ndarray, period: int = 14, lookback: int = 10) -> tuple[float, str]:
+    """
+    Detect bullish RSI divergence: price making lower lows while RSI makes higher lows.
+    Returns (score_boost, description). Score boost 0-15.
+    """
+    if len(closes) < lookback + period + 1: return 0.0, ""
+    # Calculate RSI for last lookback+1 bars
+    rsi_vals = [calc_rsi(closes[:-(lookback-i)] if lookback-i > 0 else closes) for i in range(lookback)]
+    if len(rsi_vals) < 4: return 0.0, ""
+    price_change = (closes[-1] - closes[-lookback]) / closes[-lookback] * 100
+    rsi_change   = rsi_vals[-1] - rsi_vals[0]
+    # Bullish divergence: price down, RSI up
+    if price_change < -1.0 and rsi_change > 5:
+        boost = min(15, abs(rsi_change) * 1.5)
+        return round(boost, 1), f"Bullish RSI divergence: price {price_change:+.1f}% RSI {rsi_change:+.1f}pt"
+    return 0.0, ""
+
+
+def calc_market_breadth() -> dict:
+    """
+    % of watchlist stocks above their SMA50 — broader regime signal than SPY alone.
+    60%+ above = bullish breadth, 40%- = bearish breadth.
+    """
+    above = sum(1 for t in tickers.values() if t.sma_50 > 0 and t.price > t.sma_50)
+    below = sum(1 for t in tickers.values() if t.sma_50 > 0 and t.price < t.sma_50)
+    total = above + below
+    pct   = above / total * 100 if total > 0 else 50.0
+    return {
+        "breadth_pct": round(pct, 1),
+        "above_50":    above,
+        "below_50":    below,
+        "signal":      "bullish" if pct >= 60 else "bearish" if pct <= 40 else "neutral",
+    }
+
+
+def is_opex_friday() -> bool:
+    """Returns True if today is monthly options expiration (3rd Friday of month)."""
+    today = date.today()
+    if today.weekday() != 4: return False
+    first = date(today.year, today.month, 1)
+    days_to_fri = (4 - first.weekday()) % 7
+    third_fri   = first + timedelta(days=days_to_fri + 14)
+    return today == third_fri
+
+
+def kelly_size(equity: float, rr: float, ai_score: float) -> float:
+    """
+    Half-Kelly position sizing blended with AI confidence.
+    Uses historical win rate from feedback, falls back to fixed risk if insufficient data.
+    Returns fraction of equity to risk (capped at max_position_pct).
+    """
+    feedback = load_feedback()
+    if len(feedback) < 10:
+        return RISK["max_position_pct"]  # not enough data yet
+    wins     = [t for t in feedback if t["result"] == "win"]
+    losses   = [t for t in feedback if t["result"] == "loss"]
+    p        = len(wins) / len(feedback)
+    q        = 1 - p
+    b        = rr if rr > 0 else 1.5
+    kelly    = (p * b - q) / b
+    half_k   = max(0, kelly / 2)
+    # Scale by AI score (55=no change, 80=+25%, 100=+50%)
+    ai_mult  = 1.0 + max(0, (ai_score - 55) / 100)
+    sized    = half_k * ai_mult
+    return max(0.005, min(RISK["max_position_pct"], sized))
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MARKET DATA
 # ══════════════════════════════════════════════════════════════════════════════
@@ -420,6 +517,9 @@ class TickerData:
         self.volume = self.avg_vol = self.vol_ratio = 0.0
         self.sma_50 = self.sma_200 = self.rsi_14 = 0.0
         self.atr_14 = self.atr_pct = 0.0
+        self.adx_14  = 25.0   # trend strength (>25 = trending, <20 = choppy)
+        self.rsi_divergence_boost = 0.0
+        self.rsi_divergence_note  = ""
         self.iv_rank = self.implied_move = 0.0
         self.earnings_within_5d = False
         self.earnings_date = None
@@ -443,6 +543,7 @@ class MacroData:
         self.sector_rotation = {}
         self.unusual_volume  = []
         self.fear_greed      = {"score": 50, "rating": "neutral", "change": 0}
+        self.breadth         = {"breadth_pct": 50.0, "signal": "neutral"}
 
 tickers: dict[str, TickerData] = {}
 macro = MacroData()
@@ -1014,6 +1115,8 @@ def fetch_price_data():
             rsi        = calc_rsi(closes)
             atr        = calc_atr(highs, lows, closes)
             atr_pct    = atr / price if price else 0
+            adx        = calc_adx(highs, lows, closes)
+            div_boost, div_note = detect_rsi_divergence(closes)
             earnings_5d = False
             earnings_dt = None
             # Skip earnings check for ETFs and known non-equity tickers
@@ -1059,6 +1162,9 @@ def fetch_price_data():
             t.vol_ratio = round(vol_ratio, 2)
             t.sma_50  = round(sma_50, 2);  t.sma_200 = round(sma_200, 2)
             t.rsi_14  = rsi; t.atr_14 = atr; t.atr_pct = round(atr_pct, 4)
+            t.adx_14  = adx
+            t.rsi_divergence_boost = div_boost
+            t.rsi_divergence_note  = div_note
             t.iv_rank = 50.0; t.implied_move = round(atr_pct * 2, 3)
             t.earnings_within_5d = earnings_5d; t.earnings_date = earnings_dt
             t.has_negative_news  = has_neg
@@ -1168,7 +1274,24 @@ def fetch_macro():
     except Exception as e:
         log(f"  Fear & Greed error: {e}", "WARN")
     macro.sector_rotation = fetch_sector_rotation()
-    macro.unusual_volume = fetch_unusual_volume_scan()
+    macro.unusual_volume  = fetch_unusual_volume_scan()
+
+    # Market breadth — % of watchlist above SMA50
+    breadth = calc_market_breadth()
+    macro.breadth = breadth
+    log(f"  Market breadth: {breadth['breadth_pct']:.0f}% above SMA50 "
+        f"({breadth['above_50']} up / {breadth['below_50']} dn) — {breadth['signal']}")
+    # Breadth adjusts risk_score: if breadth is very bullish/bearish
+    if breadth["breadth_pct"] >= 70 and macro.risk_score >= 0:
+        macro.risk_score = min(macro.risk_score + 1, 3)
+        log("  Breadth boost: 70%+ above SMA50 — risk score +1")
+    elif breadth["breadth_pct"] <= 30 and macro.risk_score <= 0:
+        macro.risk_score = max(macro.risk_score - 1, -3)
+        log("  Breadth drag: 30%- above SMA50 — risk score -1")
+
+    # Options expiry warning
+    if is_opex_friday():
+        log("  OpEx Friday — no new entries today", "WARN")
 
 def build_context(symbol=None) -> str:
     m = macro
@@ -1279,6 +1402,7 @@ def scan_long(symbol) -> dict | None:
     if t.has_negative_news and t.headline_score < -30: return None
     if m.fomc_24h or m.cpi_24h or m.jobs_24h: return None
     if macro.risk_score <= -3: return None
+    if is_opex_friday(): return None   # No new entries on OpEx Friday
     if not (t.price > t.sma_50 > t.sma_200): return None
     pct_above_50 = (t.price - t.sma_50) / t.sma_50
     if pct_above_50 < 0.003: return None
@@ -1312,6 +1436,14 @@ def scan_long(symbol) -> dict | None:
     insider_adj,  insider_note  = get_insider_score(symbol)
     options_adj,  options_note  = get_options_flow_score(symbol, "long")
     congress_adj, congress_note = get_congress_score(symbol)
+    # ADX trend strength score
+    adx_adj = (10 if t.adx_14 >= 40 else   # strong trend
+               5  if t.adx_14 >= 25 else   # trending
+               -8 if t.adx_14 < 20 else 0) # choppy — penalize
+
+    # RSI divergence boost
+    div_adj  = t.rsi_divergence_boost
+
     criteria = (trend_score  * 0.25 +
                 mom_score    * 0.20 +
                 vol_score    * 0.20 +
@@ -1320,7 +1452,8 @@ def scan_long(symbol) -> dict | None:
                 hl_score     * 0.05 +
                 reddit_adj + unusual_adj +
                 vwap_adj + sector_adj + earnings_adj +
-                insider_adj + options_adj + congress_adj)
+                insider_adj + options_adj + congress_adj +
+                adx_adj + div_adj)
     min_criteria = 68 if ranging_mode else 58
     if criteria < min_criteria: return None
     mtf_ok, mtf_reason = get_1h_confirmation(symbol, "long")
@@ -1333,8 +1466,9 @@ def scan_long(symbol) -> dict | None:
     rr     = round((target - t.price) / (t.price - stop), 2) if t.price > stop else 0
     if rr < 1.5: return None
     notes = [f"Trend up {pct_above_50:.1%} above SMA50",
-             f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}",
+             f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%} ADX={t.adx_14:.0f}",
              mtf_reason]
+    if t.rsi_divergence_note: notes.append(t.rsi_divergence_note)
     for n in [vwap_note, sector_note, earnings_note, insider_note, options_note, congress_note]:
         if n: notes.append(n)
     if t.headline_score > 20: notes.append(f"Headlines bullish ({t.headline_score:+.0f})")
@@ -2037,9 +2171,17 @@ def execute_signal(sig: dict, equity: float) -> bool:
     if not sig.get("approved"): return False
     rps    = abs(sig["entry"] - sig["stop"])
     if rps <= 0: return False
-    shares = max(1, int(equity * RISK["max_risk_per_trade_pct"] / rps))
+    # Kelly-based position sizing (blended with fixed-risk as fallback)
+    kelly_pct = kelly_size(equity, sig.get("rr", 1.5), sig.get("ai_score", 65))
+    fixed_pct = RISK["max_risk_per_trade_pct"]
+    # Blend: 50% Kelly, 50% fixed until 20+ trades, then 80/20
+    feedback  = load_feedback()
+    blend     = 0.8 if len(feedback) >= 20 else 0.5
+    risk_pct  = blend * kelly_pct + (1 - blend) * fixed_pct
+    shares = max(1, int(equity * risk_pct / rps))
     shares = min(shares, int(equity * RISK["max_position_pct"] / sig["entry"]))
     shares = max(1, int(shares * sig.get("size_adj", 1.0)))
+    log(f"  Kelly sizing: {kelly_pct:.2%} | Fixed: {fixed_pct:.2%} | Blend: {risk_pct:.2%} | Shares: {shares}")
     side   = "buy" if sig["direction"] == "long" else "sell"
     order  = {
         "symbol":        sig["symbol"],
@@ -2356,6 +2498,41 @@ def sync_positions_from_alpaca():
     return alpaca_positions
 
 
+def check_stop_proximity():
+    """
+    Alert when a position is within 0.5% of its stop loss — before it gets hit.
+    Gives time to manually intervene or let it breathe.
+    """
+    trades = load_trades()
+    for trade in trades:
+        if trade.get("status") != "open": continue
+        sym          = trade["symbol"]
+        direction    = trade.get("direction", "long")
+        stop         = trade.get("stop_loss", 0)
+        current      = trade.get("current_price", 0) or trade.get("entry_price", 0)
+        already_alerted = trade.get("stop_proximity_alerted", False)
+        if not stop or not current: continue
+        if direction == "long":
+            dist_pct = (current - stop) / current * 100
+        else:
+            dist_pct = (stop - current) / current * 100
+        if dist_pct <= 0.5 and not already_alerted:
+            log(f"  STOP PROXIMITY: {sym} is {dist_pct:.2f}% from stop ${stop:.2f}", "WARN")
+            parts = [
+                "STOP PROXIMITY: " + sym,
+                "Current: $" + f"{current:.2f}" + " | Stop: $" + f"{stop:.2f}",
+                "Distance: " + f"{dist_pct:.2f}" + "% - stop may be hit soon",
+                "Direction: " + direction.upper(),
+            ]
+            _tg("\n".join(parts))
+            trade["stop_proximity_alerted"] = True
+            save_trades(trades)
+        elif dist_pct > 1.0 and already_alerted:
+            # Reset alert if price recovers
+            trade["stop_proximity_alerted"] = False
+            save_trades(trades)
+
+
 def apply_trailing_stops():
     trades = load_trades()
     updated = False
@@ -2625,16 +2802,19 @@ def run_position_monitor():
                     tickers[sym].headline_score = score_headlines(headlines, sym)["score"]
             except: pass
 
-    # 4. Apply trailing stops
+    # 4. Check stop proximity (alert before stop is hit)
+    check_stop_proximity()
+
+    # 5. Apply trailing stops
     apply_trailing_stops()
 
-    # 5. Time-based exits
+    # 6. Time-based exits
     check_time_based_exits()
 
-    # 6. News emergencies
+    # 7. News emergencies
     check_news_emergency_exit()
 
-    # 7. EOD close check
+    # 8. EOD close check
     eod_close_all()
 
     log("-- Monitor complete -------------------------------------------\n")
@@ -2761,12 +2941,17 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
     if cmd in ("help", "h", "?"):
         reply(
             "Boticus Commands\n\n"
+            "Scanning\n"
+            "/scan — trigger a scan right now\n"
+            "/nearmiss — see what almost fired last scan\n"
+            "/debug — why signals are being blocked\n"
+            "/testsignal — test full AI pipeline (no order)\n\n"
             "Info\n"
             "/status — account equity + open positions\n"
             "/positions — detailed view of all open trades\n"
-            "/regime — current market regime + VIX + Fear&Greed\n"
+            "/regime — current market regime + VIX + breadth\n"
             "/watchlist — active tickers being scanned\n"
-            "/debug — why last scan found no signals\n\n"
+            "/pnl — today's P&L summary\n\n"
             "Control\n"
             "/pause — halt new trades\n"
             "/resume — resume trading\n"
@@ -2774,9 +2959,7 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
             "Intelligence\n"
             "/research — run research digest now\n"
             "/backtest — run 180-day backtest\n"
-            "/feed <text> — feed any text into AI knowledge base\n\n"
-            "Performance\n"
-            "/pnl — today's P&L summary\n"
+            "/feed <text> — inject any text into AI brain\n"
         )
         return True
 
@@ -2831,7 +3014,9 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
         return True
 
     elif cmd == "regime":
-        fg = macro.fear_greed if hasattr(macro, 'fear_greed') else {}
+        fg = macro.fear_greed if hasattr(macro, "fear_greed") else {}
+        breadth = getattr(macro, "breadth", {})
+        opex = " | OpEx Friday — no new entries" if is_opex_friday() else ""
         reply(
             f"Market Regime\n\n"
             f"Regime: {macro.market_regime}\n"
@@ -2839,6 +3024,7 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
             f"Fear & Greed: {fg.get('score',50):.0f} ({fg.get('rating','neutral')})\n"
             f"Futures: {macro.futures_sentiment}\n"
             f"Risk score: {macro.risk_score:+d}\n"
+            f"Breadth: {breadth.get('breadth_pct',50):.0f}% above SMA50 ({breadth.get('signal','neutral')}){opex}\n"
             f"FOMC today: {'Yes' if macro.fomc_24h else 'No'}\n"
             f"CPI today: {'Yes' if macro.cpi_24h else 'No'}"
         )
@@ -2906,6 +3092,78 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
             f"CPI: {'BLOCKED' if macro.cpi_24h else 'clear'}\n"
             f"Paused: {'YES' if is_paused() else 'No'}"
         )
+        return True
+
+    elif cmd == "scan":
+        session = get_market_session()
+        if session != "open":
+            # Market closed — show last near-miss data
+            nm_file = STATE_DIR / "near_miss.json"
+            if nm_file.exists():
+                nm_data = json.loads(nm_file.read_text())
+                nms     = nm_data.get("near_misses", [])[:6]
+                updated = nm_data.get("updated_at", "")[:16].replace("T"," ")
+                nm_str  = "\n".join([
+                    f"{n['symbol']} {n['criteria']:.0f}/58 — {n['blockers'][0] if n['blockers'] else 'criteria'}"
+                    for n in nms
+                ])
+                reply(f"Market {session} — last scan at {updated} ET\n\nNear-misses:\n{nm_str}" if nm_str else f"Market {session} — no near-miss data")
+            else:
+                reply(f"Market {session} — no scan data yet")
+            return True
+        # Market open — run scan immediately with data already loaded
+        reply(f"Scanning {len(get_watchlist())} tickers now...")
+        try:
+            sigs = []
+            nms  = []
+            for sym in get_watchlist():
+                for fn in (scan_long, scan_short):
+                    s = fn(sym)
+                    if s: sigs.append(s)
+                    else:
+                        direction = "long" if fn == scan_long else "short"
+                        nm = scan_diagnostic(sym, direction)
+                        if nm: nms.append(nm)
+            sigs.sort(key=lambda x: x["criteria"], reverse=True)
+            nms.sort( key=lambda x: x["criteria"], reverse=True)
+            if sigs:
+                sig_lines = "\n".join([
+                    f"{'up' if s['direction']=='long' else 'dn'} {s['symbol']} "
+                    f"criteria:{s['criteria']:.0f} R/R:{s['rr']:.1f}"
+                    for s in sigs[:5]
+                ])
+                reply(f"Scan: {len(sigs)} signal(s)\n\n{sig_lines}\n\nProcessing...")
+            else:
+                top3 = "\n".join([
+                    f"{n['symbol']} {n['criteria']:.0f}/58 — {n['blockers'][0] if n['blockers'] else 'criteria'}"
+                    for n in nms[:5]
+                ])
+                reply(f"Scan: 0 signals | {len(nms)} near-misses\n\n{top3 or 'Nothing close'}")
+        except Exception as e:
+            reply(f"Scan error: {e}")
+        return True
+
+    elif cmd == "nearmiss":
+        nm_file = STATE_DIR / "near_miss.json"
+        if not nm_file.exists():
+            reply("No near-miss data yet — run a scan first.")
+            return True
+        nm_data = json.loads(nm_file.read_text())
+        nms     = nm_data.get("near_misses", [])
+        updated = nm_data.get("updated_at", "")[:16].replace("T"," ")
+        if not nms:
+            reply(f"No near-misses found in last scan ({updated} ET)")
+            return True
+        lines = [f"Near-Misses as of {updated} ET\n"]
+        for n in nms[:8]:
+            gap     = 58 - n["criteria"]
+            blocker = n["blockers"][0] if n.get("blockers") else "below threshold"
+            lines.append(
+                f"{n['symbol']} — score {n['criteria']:.0f}/58 (gap:{gap:.0f})\n"
+                f"   RSI:{n.get('rsi',0):.0f} Vol:{n.get('vol',0):.1f}x "
+                f"Chg:{n.get('change_pct',0):+.1f}% | {blocker}"
+            )
+        reply("\n".join(lines))
         return True
 
     elif cmd == "pnl":
@@ -3041,10 +3299,28 @@ def load_fed_insights() -> str:
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
+def cleanup_flag_files():
+    """Delete flag files older than 2 days to prevent STATE_DIR bloat."""
+    cutoff = datetime.now(ET) - timedelta(days=2)
+    deleted = 0
+    for f in STATE_DIR.glob("*.flag"):
+        try:
+            mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=ET)
+            if mtime < cutoff:
+                f.unlink()
+                deleted += 1
+        except: pass
+    if deleted:
+        log(f"Cleaned up {deleted} stale flag files")
+
+
 def main():
     now     = datetime.now(ET)
     session = get_market_session()
     mode    = os.environ.get("RUN_MODE", "scan")
+
+    # Housekeeping — purge stale flag files
+    cleanup_flag_files()
 
     log("=" * 60)
     log(f"TRADING BOT RUN | {now.strftime('%Y-%m-%d %H:%M ET')} | {session} | mode={mode}")
@@ -3270,6 +3546,20 @@ def main():
                 open_positions.append({"symbol": sig["symbol"]})
 
     log(f"\nRun complete: {filled} new position(s) opened")
+
+    # Write last_run.json for dashboard "last seen" display
+    last_run_file = STATE_DIR / "last_run.json"
+    last_run_file.write_text(json.dumps({
+        "timestamp":    datetime.now(ET).isoformat(),
+        "mode":         mode,
+        "session":      session,
+        "regime":       macro.market_regime,
+        "vix":          macro.vix,
+        "risk_score":   macro.risk_score,
+        "signals":      filled,
+        "open_positions": len(get_open_positions()),
+    }, indent=2))
+
     commit_state_to_github()
 
 
@@ -3866,7 +4156,7 @@ def commit_state_to_github():
         "trades.json", "feedback.json", "backtest_latest.json",
         "auto_adjust_latest.json", "bot.log", "watchlist.json",
         "research_digest.json", "fed_insights.json", "tg_offset.json",
-        "paused.json", "near_miss.json",
+        "paused.json", "near_miss.json", "last_run.json",
     ]
     committed = 0
     for filename in files_to_commit:
@@ -3955,6 +4245,7 @@ adj      = load("auto_adjust_latest.json")
 wl       = load("watchlist.json")
 nm       = load("near_miss.json")
 digest   = load("research_digest.json")
+lr       = load("last_run.json")
 
 open_t    = [t for t in trades if t.get("status")=="open"]
 today_str = date.today().isoformat()
@@ -3973,6 +4264,24 @@ avg_loss  = sum(t.get("pnl_pct",0) for t in losses)/len(losses) if losses else 0
 # ── Header ───────────────────────────────────────────────────────
 st.title("🤖 Boticus")
 st.caption(f"Refreshes every 3 min · {datetime.now().strftime('%b %d %H:%M ET')}")
+
+if lr:
+    last_ts   = lr.get("timestamp","")[:16].replace("T"," ")
+    lr_regime = lr.get("regime","unknown")
+    lr_vix    = lr.get("vix", 0)
+    lr_risk   = lr.get("risk_score", 0)
+    lr_sigs   = lr.get("signals", 0)
+    risk_str  = {2:"RISK-ON",1:"MILD-ON",0:"NEUTRAL",-1:"MILD-OFF",-2:"RISK-OFF",-3:"EXTREME-OFF"}.get(lr_risk,"?")
+    sig_str   = f"{lr_sigs} signal(s)" if lr_sigs else "0 signals"
+    color     = "#22c55e" if lr_sigs > 0 else "#aaa"
+    st.markdown(
+        f'<div style="font-size:13px;color:{color};margin:0 0 10px">' +
+        f'🟢 Last run: <b>{last_ts} ET</b> · {lr_regime} · VIX {lr_vix:.1f} · {risk_str} · {sig_str}' +
+        '</div>', unsafe_allow_html=True
+    )
+else:
+    st.markdown('<div style="font-size:13px;color:#aaa;margin:0 0 10px">⏳ Waiting for first bot run...</div>',
+                unsafe_allow_html=True)
 
 # ── Top metrics ──────────────────────────────────────────────────
 c1,c2,c3,c4,c5,c6 = st.columns(6)
