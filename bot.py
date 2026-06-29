@@ -3133,27 +3133,69 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
         reply("Processing with Opus...")
         try:
             resp = ai_client.messages.create(
-                model=OPUS_MODEL, max_tokens=600,
-                system='Extract 2-4 specific actionable trading insights from this text. Output JSON only: {"insights": [{"finding": "...", "tickers": [], "impact": "bullish/bearish/neutral", "confidence": "high/medium/low", "actionable": "..."}], "summary": "1-2 sentences"}',
-                messages=[{"role": "user", "content": f"Extract trading insights:\n\n{args[:3000]}"}]
+                model=OPUS_MODEL, max_tokens=800,
+                system=(
+                    "Extract 2-4 actionable trading insights from the text provided. "
+                    "Output ONLY a valid JSON object, no markdown, no backticks, no preamble. "
+                    "Use only simple ASCII characters in your response — no smart quotes, no special chars. "
+                    "Format: "
+                    '{"insights":[{"finding":"text","tickers":[],"impact":"bullish","confidence":"high","actionable":"text"}],'
+                    '"summary":"1-2 sentences"}'
+                ),
+                messages=[{"role": "user", "content": "Extract trading insights from this text:\n\n" + args[:3000]}]
             )
             raw = resp.content[0].text.strip()
-            if raw.startswith("```"): raw = raw.split("```")[1]; raw = raw[4:] if raw.startswith("json") else raw
-            result = json.loads(raw.strip())
+            # Strip markdown fences if present
+            if "```" in raw:
+                parts = raw.split("```")
+                for part in parts:
+                    part = part.strip()
+                    if part.startswith("json"):
+                        part = part[4:].strip()
+                    if part.startswith("{"):
+                        raw = part
+                        break
+            raw = raw.strip()
+            # Fix common JSON issues from LLM output
+            raw = raw.replace("\u2019", "'").replace("\u2018", "'")
+            raw = raw.replace("\u201c", '"').replace("\u201d", '"')
+            # Find JSON boundaries
+            start_idx = raw.find("{")
+            end_idx   = raw.rfind("}") + 1
+            if start_idx >= 0 and end_idx > start_idx:
+                raw = raw[start_idx:end_idx]
+            result = json.loads(raw)
+            insights = result.get("insights", [])
             feed_file = STATE_DIR / "fed_insights.json"
             existing  = json.loads(feed_file.read_text()) if feed_file.exists() else []
-            existing.extend(result.get("insights", []))
+            existing.extend(insights)
             existing = existing[-50:]
             feed_file.write_text(json.dumps(existing, indent=2))
-            findings = "\n".join([f"- {i['finding'][:100]}" for i in result.get("insights",[])])
-            reply(
-                f"Fed to the beast\n\n"
-                f"Insights extracted:\n{findings}\n\n"
-                f"{result.get('summary','')}\n\n"
-                f"Added to knowledge base."
+            findings = "\n".join(["- " + i.get("finding","")[:100] for i in insights])
+            out = (
+                "Fed to the beast\n\n"
+                "Insights extracted:\n" + findings + "\n\n"
+                + result.get("summary", "") + "\n\n"
+                "Added to knowledge base."
             )
+            reply(out)
+        except json.JSONDecodeError as e:
+            # Fallback: save as plain text insight if JSON fails
+            log(f"Feed JSON parse error: {e} — saving as plain text", "WARN")
+            feed_file = STATE_DIR / "fed_insights.json"
+            existing  = json.loads(feed_file.read_text()) if feed_file.exists() else []
+            existing.append({
+                "finding":    args[:300],
+                "tickers":    [],
+                "impact":     "neutral",
+                "confidence": "medium",
+                "actionable": "manual note — review before trading",
+            })
+            existing = existing[-50:]
+            feed_file.write_text(json.dumps(existing, indent=2))
+            reply("Saved as plain text insight (JSON parse failed — content stored directly).")
         except Exception as e:
-            reply(f"Feed error: {e}")
+            reply("Feed error: " + str(e))
         return True
 
     elif cmd == "testsignal":
