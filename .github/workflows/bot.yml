@@ -1,60 +1,31 @@
-name: Boticus Trading Bot
-
-# ─────────────────────────────────────────────────────────────
-# SCHEDULE — 5 clean cron entries (was 64 — that's what broke it)
-#
-# GitHub's scheduler silently stops firing when a workflow has
-# too many cron entries. 64 entries caused it to stop entirely.
-# 5 entries is the safe limit. Density at open/close is handled
-# by using */2 (every 2 min) rather than one entry per minute.
-#
-# All times UTC.  ET summer = UTC-4.
-# ─────────────────────────────────────────────────────────────
+name: Trading Bot
 
 on:
-  schedule:
-    - cron: '*/5 13-20 * * 1-5'   # Every 5 min, 9 AM–4 PM ET (core market hours)
-    - cron: '*/2 13-14 * * 1-5'   # Every 2 min, 9–11 AM ET  (open window density)
-    - cron: '*/2 19-20 * * 1-5'   # Every 2 min, 3–5 PM ET   (close window density)
-    - cron: '0 0 * * *'           # Midnight UTC keep-alive (stops GitHub disabling schedule)
-    - cron: '0 12 * * 0'          # Sunday 8 AM ET — backtest + research digest
-
   workflow_dispatch:
     inputs:
-      mode:
-        description: 'Run mode'
-        required: true
+      run_mode:
+        description: 'Run mode (scan/status/backtest/research/review/dashboard)'
+        required: false
         default: 'scan'
-        type: choice
-        options:
-          - scan
-          - status
-          - research
-          - backtest
-          - recent_regime
-          - auto_adjust
-          - review
-          - dashboard
       backtest_days:
-        description: 'Backtest lookback (days)'
+        description: 'Backtest lookback days'
         required: false
         default: '180'
-        type: choice
-        options:
-          - '60'
-          - '90'
-          - '180'
-          - '365'
+  schedule:
+    # Every 5 min during market hours (13:00-20:00 UTC = 9AM-4PM ET)
+    - cron: '*/5 13-20 * * 1-5'
+    # Every 2 min at open (13:30-14:30 UTC = 9:30-10:30 AM ET)
+    - cron: '*/2 13-14 * * 1-5'
+    # Every 2 min at close (19:00-20:00 UTC = 3-4 PM ET)
+    - cron: '*/2 19-20 * * 1-5'
+    # Midnight keep-alive (prevents GitHub from disabling the workflow)
+    - cron: '0 0 * * *'
+    # Sunday backtest at noon UTC
+    - cron: '0 12 * * 0'
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    # ── Required so the git push step can write back to the repo ──
-    permissions:
-      contents: write
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,10 +33,9 @@ jobs:
       - name: Restore bot state
         uses: actions/cache@v4
         with:
-          path: bot_state/
+          path: bot_state
           key: bot-state-${{ github.run_number }}
-          restore-keys: |
-            bot-state-
+          restore-keys: bot-state-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -78,50 +48,41 @@ jobs:
 
       - name: Run bot
         env:
-          ALPACA_API_KEY:      ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY:   ${{ secrets.ALPACA_SECRET_KEY }}
-          ALPACA_BASE_URL:     ${{ secrets.ALPACA_BASE_URL }}
-          FRED_API_KEY:        ${{ secrets.FRED_API_KEY }}
-          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
-          PAPER_MODE:          ${{ secrets.PAPER_MODE }}
-          ACCOUNT_EQUITY:      ${{ secrets.ACCOUNT_EQUITY }}
-          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
-          DASHBOARD_URL:       ${{ secrets.DASHBOARD_URL }}
-          GITHUB_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY:   ${{ github.repository }}
-          EOD_CLOSE:           true
-          STATE_DIR:           bot_state
-          RUN_MODE:            ${{ github.event.inputs.mode || 'scan' }}
-          BACKTEST_DAYS:       ${{ github.event.inputs.backtest_days || '180' }}
+          ALPACA_API_KEY:    ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_BASE_URL:   ${{ secrets.ALPACA_BASE_URL }}
+          FRED_API_KEY:      ${{ secrets.FRED_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PAPER_MODE:        ${{ secrets.PAPER_MODE }}
+          ACCOUNT_EQUITY:    ${{ secrets.ACCOUNT_EQUITY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL:     ${{ secrets.DASHBOARD_URL }}
+          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
+          EOD_CLOSE:         'true'
+          STATE_DIR:         bot_state
+          RUN_MODE:          ${{ github.event.inputs.run_mode || 'scan' }}
+          BACKTEST_DAYS:     ${{ github.event.inputs.backtest_days || '180' }}
         run: python -u bot.py
 
       - name: Save bot state
         uses: actions/cache@v4
-        if: always()
         with:
-          path: bot_state/
+          path: bot_state
           key: bot-state-${{ github.run_number }}
 
-      # ── Commit state back to repo so Streamlit Cloud sees live data ──
       - name: Commit state to repo
-        if: always()
         run: |
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name  "github-actions[bot]"
+          git config user.email "bot@boticus.app"
+          git config user.name "Boticus"
           git add bot_state/ || true
-          git diff --cached --quiet || \
-            git commit -m "bot: update state [$(TZ=America/New_York date '+%Y-%m-%d %H:%M ET')]"
+          git diff --staged --quiet || git commit -m "bot: update state [skip ci]"
           git push || true
 
       - name: Upload logs
-        uses: actions/upload-artifact@v4
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: bot-logs-${{ github.run_id }}
-          path: |
-            bot_state/bot.log
-            bot_state/backtest_latest.json
-            bot_state/auto_adjust_latest.json
-            bot_state/research_digest.json
-          retention-days: 14
+          name: bot-logs-${{ github.run_number }}
+          path: bot_state/bot.log
+          retention-days: 7
