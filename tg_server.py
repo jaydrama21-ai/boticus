@@ -83,9 +83,11 @@ def trigger_workflow(mode: str, days: int = 180) -> bool:
             "ref":    "main",
             "inputs": {"run_mode": mode, "backtest_days": str(days)},
         }, timeout=10)
+        print(f"[trigger_workflow] mode={mode} status={r.status_code} body={r.text[:300]}")
+        print(f"[trigger_workflow] repo={GITHUB_REPO!r} token_set={bool(GITHUB_TOKEN)} token_len={len(GITHUB_TOKEN) if GITHUB_TOKEN else 0}")
         return r.status_code in (200, 201, 204)
     except Exception as e:
-        print(f"Workflow trigger error: {e}")
+        print(f"[trigger_workflow] EXCEPTION: {e}")
         return False
 
 
