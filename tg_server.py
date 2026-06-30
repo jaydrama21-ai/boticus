@@ -386,11 +386,14 @@ def webhook():
     msg     = data.get("message", {})
     text    = msg.get("text", "")
     chat_id = str(msg.get("chat", {}).get("id", ""))
+    print(f"[webhook] received text={text!r} chat_id={chat_id!r} expected={TELEGRAM_CHAT_ID!r}")
     if text and text.startswith("/") and chat_id:
+        if str(chat_id) != str(TELEGRAM_CHAT_ID):
+            print(f"[webhook] BLOCKED — chat_id mismatch: got {chat_id!r}, expected {TELEGRAM_CHAT_ID!r}")
         try:
             handle(text, chat_id)
         except Exception as e:
-            print(f"Command error: {e}")
+            print(f"[webhook] Command error: {e}")
             send(chat_id, f"Error: {e}")
     return jsonify({"ok": True})
 
@@ -459,7 +462,7 @@ import time as _time
 
 def _keep_alive_worker():
     """Ping self every 8 minutes to prevent Render free tier spin-down."""
-    _time.sleep(30)  # Wait for server to fully start first
+    _time.sleep(90)  # Wait well past Render's health check window first
     while True:
         try:
             url = os.environ.get("RENDER_EXTERNAL_URL", "")
@@ -469,8 +472,11 @@ def _keep_alive_worker():
             pass
         _time.sleep(480)  # 8 minutes
 
-_ka_thread = _threading.Thread(target=_keep_alive_worker, daemon=True)
-_ka_thread.start()
+try:
+    _ka_thread = _threading.Thread(target=_keep_alive_worker, daemon=True)
+    _ka_thread.start()
+except Exception:
+    pass  # Never let keep-alive setup block server startup
 
 
 if __name__ == "__main__":
