@@ -400,6 +400,34 @@ def health():
     return "Boticus TG Server — OK"
 
 
+@app.route("/cron_scan", methods=["GET", "POST"])
+def cron_scan():
+    """
+    Reliable external trigger for bot.py scans.
+    Call this from cron-job.org every 5 minutes during market hours.
+    Only triggers during actual market hours (9:30 AM - 4:00 PM ET, Mon-Fri)
+    to avoid wasting GitHub Actions minutes outside trading hours.
+    """
+    from zoneinfo import ZoneInfo
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    is_weekday = now_et.weekday() < 5
+    mins = now_et.hour * 60 + now_et.minute
+    is_market_hours = (9 * 60 + 25) <= mins <= (16 * 60 + 5)  # small buffer
+
+    if not (is_weekday and is_market_hours):
+        return jsonify({
+            "triggered": False,
+            "reason": "outside market hours",
+            "time_et": now_et.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+    ok = trigger_workflow("scan")
+    return jsonify({
+        "triggered": ok,
+        "time_et": now_et.strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
+
 @app.route("/set_webhook", methods=["GET"])
 def set_webhook():
     """
@@ -423,6 +451,26 @@ def delete_webhook():
         timeout=10
     )
     return jsonify(r.json())
+
+
+# ── Keep-alive — runs at module level so gunicorn picks it up ─────────────────
+import threading as _threading
+import time as _time
+
+def _keep_alive_worker():
+    """Ping self every 8 minutes to prevent Render free tier spin-down."""
+    _time.sleep(30)  # Wait for server to fully start first
+    while True:
+        try:
+            url = os.environ.get("RENDER_EXTERNAL_URL", "")
+            if url:
+                requests.get(url.rstrip("/") + "/", timeout=10)
+        except Exception:
+            pass
+        _time.sleep(480)  # 8 minutes
+
+_ka_thread = _threading.Thread(target=_keep_alive_worker, daemon=True)
+_ka_thread.start()
 
 
 if __name__ == "__main__":
