@@ -257,7 +257,7 @@ RISK = {
     "max_open_positions":    6,
     "rsi_min":               55,
     "rsi_max":               72,
-    "volume_min_mult":       1.2,
+    "volume_min_mult":       0.8,
     "atr_pct_max":           0.04,
     "dead_money_hours":      4,
     "max_hold_hours":        6,
