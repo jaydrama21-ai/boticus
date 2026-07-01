@@ -257,7 +257,7 @@ RISK = {
     "max_open_positions":    6,
     "rsi_min":               55,
     "rsi_max":               72,
-    "volume_min_mult":       0.8,
+    "volume_min_mult":       0.5,
     "atr_pct_max":           0.04,
     "dead_money_hours":      4,
     "max_hold_hours":        6,
@@ -1367,9 +1367,11 @@ def scan_long(symbol) -> dict | None:
     trend_score = min(100, 90 + pct_above_50 * 200)
     if not (RISK["rsi_min"] <= t.rsi_14 <= RISK["rsi_max"]): return None
     mom_score = max(50, 100 - abs(t.rsi_14 - 62) * 2.5)
-    if t.vol_ratio < 0.8: return None
+    # No hard volume gate — vol_score handles it as soft penalty
+    # Low volume reduces score but doesn't auto-reject strong setups
     vol_score = min(100, 55 + (t.vol_ratio - 1) * 25)
     if t.vol_ratio < RISK["volume_min_mult"]: vol_score *= 0.6
+    if t.vol_ratio < 0.3: vol_score *= 0.4  # Very low volume = big penalty
     if t.atr_pct > RISK["atr_pct_max"]: return None
     if t.atr_pct < 0.005: return None
     atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
