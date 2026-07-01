@@ -4,24 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       run_mode:
-        description: 'Run mode (scan/status/backtest/research/review/dashboard)'
+        description: 'Run mode'
         required: false
         default: 'scan'
       backtest_days:
-        description: 'Backtest lookback days'
+        description: 'Backtest days'
         required: false
         default: '180'
   schedule:
-    # Every 5 min during market hours (13:00-20:00 UTC = 9AM-4PM ET)
     - cron: '*/5 13-20 * * 1-5'
-    # Every 2 min at open (13:30-14:30 UTC = 9:30-10:30 AM ET)
     - cron: '*/2 13-14 * * 1-5'
-    # Every 2 min at close (19:00-20:00 UTC = 3-4 PM ET)
     - cron: '*/2 19-20 * * 1-5'
-    # Midnight keep-alive (prevents GitHub from disabling the workflow)
     - cron: '0 0 * * *'
-    # Sunday backtest at noon UTC
     - cron: '0 12 * * 0'
+
+permissions:
+  contents: write
+  actions: write
 
 jobs:
   run-bot:
@@ -48,21 +47,21 @@ jobs:
 
       - name: Run bot
         env:
-          ALPACA_API_KEY:    ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-          ALPACA_BASE_URL:   ${{ secrets.ALPACA_BASE_URL }}
-          FRED_API_KEY:      ${{ secrets.FRED_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          PAPER_MODE:        ${{ secrets.PAPER_MODE }}
-          ACCOUNT_EQUITY:    ${{ secrets.ACCOUNT_EQUITY }}
+          ALPACA_API_KEY:     ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY:  ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_BASE_URL:    ${{ secrets.ALPACA_BASE_URL }}
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          PAPER_MODE:         ${{ secrets.PAPER_MODE }}
+          ACCOUNT_EQUITY:     ${{ secrets.ACCOUNT_EQUITY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_CHAT_ID }}
-          DASHBOARD_URL:     ${{ secrets.DASHBOARD_URL }}
-          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
-          EOD_CLOSE:         'true'
-          STATE_DIR:         bot_state
-          RUN_MODE:          ${{ github.event.inputs.run_mode || 'scan' }}
-          BACKTEST_DAYS:     ${{ github.event.inputs.backtest_days || '180' }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL:      ${{ secrets.DASHBOARD_URL }}
+          GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
+          EOD_CLOSE:          'true'
+          STATE_DIR:          bot_state
+          RUN_MODE:           ${{ github.event.inputs.run_mode || 'scan' }}
+          BACKTEST_DAYS:      ${{ github.event.inputs.backtest_days || '180' }}
         run: python -u bot.py
 
       - name: Save bot state
