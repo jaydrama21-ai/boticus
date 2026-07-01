@@ -1316,13 +1316,14 @@ def get_1h_confirmation(symbol: str, direction: str) -> tuple[bool, str]:
         sma8_1h    = float(np.mean(closes_1h[-8:]))
         rsi_1h     = calc_rsi(closes_1h)
         if direction == "long":
-            trend_ok = price_1h > sma8_1h > sma20_1h or price_1h > sma20_1h
-            rsi_ok   = 45 <= rsi_1h <= 75
-            if not trend_ok:
-                return False, f"1H trend bearish (price ${price_1h:.2f} vs SMA20 ${sma20_1h:.2f})"
-            if not rsi_ok:
-                return False, f"1H RSI out of range ({rsi_1h:.1f})"
-            return True, f"1H confirmed: RSI {rsi_1h:.1f}, above SMA20"
+            # Lenient check — just needs price above SMA20 OR RSI not extreme
+            trend_ok = price_1h > sma20_1h * 0.995  # within 0.5% of SMA20 is fine
+            rsi_ok   = 35 <= rsi_1h <= 80            # wider range for ranging markets
+            if not trend_ok and rsi_1h < 40:         # only hard-reject if both bad
+                return False, f"1H weak: price ${price_1h:.2f} vs SMA20 ${sma20_1h:.2f}, RSI {rsi_1h:.1f}"
+            if rsi_1h > 82:
+                return False, f"1H overbought: RSI {rsi_1h:.1f}"
+            return True, f"1H confirmed: RSI {rsi_1h:.1f}"
         else:
             trend_ok = price_1h < sma8_1h or price_1h < sma20_1h
             rsi_ok   = rsi_1h <= 60 or rsi_1h >= 70
@@ -1651,11 +1652,16 @@ def scan_diagnostic(symbol: str, direction: str) -> dict | None:
         if not vol_ok:  blockers.append(f"Vol {t.vol_ratio:.1f}x (need {RISK['volume_min_mult']}x)")
         if not atr_ok:  blockers.append(f"ATR {t.atr_pct:.2%} (max {RISK['atr_pct_max']:.2%})")
         if criteria < 40: return None  # too far off, not worth logging
+        # Run MTF check so diagnostic shows real reason for scan_long rejection
+        if not blockers:
+            mtf_ok, mtf_reason = get_1h_confirmation(symbol, direction)
+            if not mtf_ok:
+                blockers.append(f"1H: {mtf_reason}")
         return {
             "symbol": symbol, "direction": direction,
             "criteria": round(criteria, 1), "rsi": t.rsi_14,
             "vol": t.vol_ratio, "change_pct": t.change_pct,
-            "blockers": blockers or ["MTF or adjustment pushing below 58"],
+            "blockers": blockers or ["full adjustments push below 58"],
             "scanned_at": datetime.now(ET).strftime("%H:%M"),
         }
     return None
