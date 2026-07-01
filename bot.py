@@ -1406,7 +1406,7 @@ def scan_long(symbol) -> dict | None:
                 reddit_adj + unusual_adj +
                 vwap_adj + sector_adj + earnings_adj +
                 insider_adj + options_adj + congress_adj + adx_adj)
-    min_criteria = 68 if ranging_mode else 58
+    min_criteria = 58  # Same threshold all regimes — mac_score already penalizes ranging
     if criteria < min_criteria: return None
     mtf_ok, mtf_reason = get_1h_confirmation(symbol, "long")
     if not mtf_ok:
@@ -1655,7 +1655,7 @@ def scan_diagnostic(symbol: str, direction: str) -> dict | None:
             "symbol": symbol, "direction": direction,
             "criteria": round(criteria, 1), "rsi": t.rsi_14,
             "vol": t.vol_ratio, "change_pct": t.change_pct,
-            "blockers": blockers or ["criteria below threshold"],
+            "blockers": blockers or ["MTF or adjustment pushing below 58"],
             "scanned_at": datetime.now(ET).strftime("%H:%M"),
         }
     return None
