@@ -201,15 +201,18 @@ def update_dynamic_watchlist():
                 continue
             closes  = hist["Close"].values
             volumes = hist["Volume"].values
-            avg_vol = float(np.mean(volumes))
+            # Use completed bars only — today's partial bar would make every
+            # ticker look "stale" during market hours and prune good names.
+            full_vols = volumes[:-1] if len(volumes) > 1 else volumes
+            avg_vol = float(np.mean(full_vols))
             ret_3d    = (closes[-1] - closes[-3]) / closes[-3] * 100 if len(closes) >= 3 else 0
-            vol_ratio = float(volumes[-1]) / avg_vol if avg_vol else 0
+            vol_ratio = float(full_vols[-1]) / avg_vol if avg_vol and len(full_vols) else 0
             if avg_vol < MIN_VOLUME:
                 to_remove.append((sym, f"volume too low (avg {avg_vol:,.0f})"))
             elif abs(ret_3d) < 0.5 and vol_ratio < 0.8 and sym not in traded_syms:
                 to_remove.append((sym, f"stale: {ret_3d:+.1f}% 3d, {vol_ratio:.1f}x vol"))
-        except:
-            to_remove.append((sym, "data error"))
+        except Exception as e:
+            to_remove.append((sym, f"data error: {e}"))
     new_wl = list(CORE_WATCHLIST)
     kept = [s for s in dynamic_now if s not in [r[0] for r in to_remove]]
     new_wl.extend(kept)
@@ -257,7 +260,7 @@ RISK = {
     "max_open_positions":    6,
     "rsi_min":               55,
     "rsi_max":               72,
-    "volume_min_mult":       0.5,
+    "volume_min_mult":       0.8,
     "atr_pct_max":           0.04,
     "dead_money_hours":      4,
     "max_hold_hours":        6,
@@ -452,7 +455,10 @@ def kelly_size(equity, rr, ai_score):
     """Half-Kelly position sizing using live win rate. Falls back to fixed risk."""
     feedback = load_feedback()
     if len(feedback) < 10:
-        return RISK["max_position_pct"]
+        # FIX: was max_position_pct (5%) — but callers treat this value as
+        # RISK-per-trade, not position size. That blended to ~3.5% risk/trade
+        # with zero track record. Fall back to the intended 2% risk.
+        return RISK["max_risk_per_trade_pct"]
     wins  = sum(1 for t in feedback if t["result"] == "win")
     total = len(feedback)
     p = wins / total
@@ -461,7 +467,8 @@ def kelly_size(equity, rr, ai_score):
     half  = max(0.0, kelly / 2.0)
     ai_mult = 1.0 + max(0.0, (ai_score - 55) / 100.0)
     sized = half * ai_mult
-    return max(0.005, min(RISK["max_position_pct"], sized))
+    # Cap in RISK units: allow a proven edge to size up to 1.5x base risk, no more
+    return max(0.005, min(RISK["max_risk_per_trade_pct"] * 1.5, sized))
 
 
 def calc_market_breadth():
@@ -1053,6 +1060,22 @@ def fetch_sector_rotation() -> dict:
     return rotation
 
 
+def session_elapsed_fraction() -> float:
+    """Fraction of the regular session elapsed, adjusted for volume front-loading.
+
+    Intraday volume is U-shaped (heavy at open/close). Raising linear elapsed
+    time to the 0.75 power approximates the cumulative-volume curve well enough
+    for a ratio filter. Floor of 0.10 avoids divide-by-tiny right at the open.
+    """
+    now = datetime.now(ET)
+    open_t  = now.replace(hour=9,  minute=30, second=0, microsecond=0)
+    close_t = now.replace(hour=16, minute=0,  second=0, microsecond=0)
+    if now <= open_t:  return 0.10
+    if now >= close_t: return 1.0
+    frac = (now - open_t).total_seconds() / (close_t - open_t).total_seconds()
+    return max(0.10, min(1.0, frac ** 0.75))
+
+
 def get_market_session() -> str:
     now = datetime.now(ET)
     h   = now.hour + now.minute / 60
@@ -1077,8 +1100,17 @@ def fetch_price_data():
             prev_close = float(closes[-2]) if len(closes) > 1 else price
             change_pct = (price - prev_close) / prev_close * 100
             volume     = float(volumes[-1])
-            avg_vol    = float(np.mean(volumes[-20:]))
-            vol_ratio  = volume / avg_vol if avg_vol else 0
+            # Exclude today's PARTIAL bar from the 20-day average
+            if len(volumes) >= 21:
+                avg_vol = float(np.mean(volumes[-21:-1]))
+            else:
+                avg_vol = float(np.mean(volumes[:-1])) if len(volumes) > 1 else float(volumes[-1])
+            # Time-normalize: compare today's cumulative volume to what an
+            # average day would have traded by this point in the session.
+            # Without this, vol_ratio reads 0.1-0.3x all morning and blocks
+            # every signal (the old bug: partial day vs full-day average).
+            expected_by_now = avg_vol * session_elapsed_fraction()
+            vol_ratio  = volume / expected_by_now if expected_by_now else 0
             sma_50     = float(np.mean(closes[-50:]))  if len(closes) >= 50  else 0
             sma_200    = float(np.mean(closes[-200:])) if len(closes) >= 200 else 0
             rsi        = calc_rsi(closes)
@@ -1104,7 +1136,8 @@ def fetch_price_data():
                         days = (ed - date.today()).days
                         earnings_5d = 0 <= days <= 5
                         earnings_dt = str(ed)
-                except: pass
+                except Exception as e:
+                    log(f"  {symbol}: earnings calendar failed ({e})", "WARN")
             headlines = []; has_neg = False; headline_score = 0
             articles = []
             hs = {}  # initialize before try in case news fetch fails partway
@@ -1122,7 +1155,8 @@ def fetch_price_data():
                     hs = score_headlines(headlines, symbol)
                     has_neg      = hs["has_negative"]
                     headline_score = hs["score"]
-            except: pass
+            except Exception as e:
+                log(f"  {symbol}: news fetch failed ({e})", "WARN")
             t = TickerData(symbol)
             t.price = round(price, 2);  t.prev_close = round(prev_close, 2)
             t.change_pct = round(change_pct, 2)
@@ -1316,14 +1350,13 @@ def get_1h_confirmation(symbol: str, direction: str) -> tuple[bool, str]:
         sma8_1h    = float(np.mean(closes_1h[-8:]))
         rsi_1h     = calc_rsi(closes_1h)
         if direction == "long":
-            # Lenient check — just needs price above SMA20 OR RSI not extreme
-            trend_ok = price_1h > sma20_1h * 0.995  # within 0.5% of SMA20 is fine
-            rsi_ok   = 35 <= rsi_1h <= 80            # wider range for ranging markets
-            if not trend_ok and rsi_1h < 40:         # only hard-reject if both bad
-                return False, f"1H weak: price ${price_1h:.2f} vs SMA20 ${sma20_1h:.2f}, RSI {rsi_1h:.1f}"
-            if rsi_1h > 82:
-                return False, f"1H overbought: RSI {rsi_1h:.1f}"
-            return True, f"1H confirmed: RSI {rsi_1h:.1f}"
+            trend_ok = price_1h > sma8_1h > sma20_1h or price_1h > sma20_1h
+            rsi_ok   = 45 <= rsi_1h <= 75
+            if not trend_ok:
+                return False, f"1H trend bearish (price ${price_1h:.2f} vs SMA20 ${sma20_1h:.2f})"
+            if not rsi_ok:
+                return False, f"1H RSI out of range ({rsi_1h:.1f})"
+            return True, f"1H confirmed: RSI {rsi_1h:.1f}, above SMA20"
         else:
             trend_ok = price_1h < sma8_1h or price_1h < sma20_1h
             rsi_ok   = rsi_1h <= 60 or rsi_1h >= 70
@@ -1368,11 +1401,11 @@ def scan_long(symbol) -> dict | None:
     trend_score = min(100, 90 + pct_above_50 * 200)
     if not (RISK["rsi_min"] <= t.rsi_14 <= RISK["rsi_max"]): return None
     mom_score = max(50, 100 - abs(t.rsi_14 - 62) * 2.5)
-    # No hard volume gate — vol_score handles it as soft penalty
-    # Low volume reduces score but doesn't auto-reject strong setups
+    # vol_ratio is now time-normalized (see fetch_price_data), so these
+    # thresholds mean "pace vs an average day", valid at any time of day.
+    if t.vol_ratio < 0.4: return None  # truly dead tape — skip
     vol_score = min(100, 55 + (t.vol_ratio - 1) * 25)
     if t.vol_ratio < RISK["volume_min_mult"]: vol_score *= 0.6
-    if t.vol_ratio < 0.3: vol_score *= 0.4  # Very low volume = big penalty
     if t.atr_pct > RISK["atr_pct_max"]: return None
     if t.atr_pct < 0.005: return None
     atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
@@ -1407,7 +1440,7 @@ def scan_long(symbol) -> dict | None:
                 reddit_adj + unusual_adj +
                 vwap_adj + sector_adj + earnings_adj +
                 insider_adj + options_adj + congress_adj + adx_adj)
-    min_criteria = 58  # Same threshold all regimes — mac_score already penalizes ranging
+    min_criteria = 68 if ranging_mode else 58
     if criteria < min_criteria: return None
     mtf_ok, mtf_reason = get_1h_confirmation(symbol, "long")
     if not mtf_ok:
@@ -1652,16 +1685,11 @@ def scan_diagnostic(symbol: str, direction: str) -> dict | None:
         if not vol_ok:  blockers.append(f"Vol {t.vol_ratio:.1f}x (need {RISK['volume_min_mult']}x)")
         if not atr_ok:  blockers.append(f"ATR {t.atr_pct:.2%} (max {RISK['atr_pct_max']:.2%})")
         if criteria < 40: return None  # too far off, not worth logging
-        # Run MTF check so diagnostic shows real reason for scan_long rejection
-        if not blockers:
-            mtf_ok, mtf_reason = get_1h_confirmation(symbol, direction)
-            if not mtf_ok:
-                blockers.append(f"1H: {mtf_reason}")
         return {
             "symbol": symbol, "direction": direction,
             "criteria": round(criteria, 1), "rsi": t.rsi_14,
             "vol": t.vol_ratio, "change_pct": t.change_pct,
-            "blockers": blockers or ["full adjustments push below 58"],
+            "blockers": blockers or ["criteria below threshold"],
             "scanned_at": datetime.now(ET).strftime("%H:%M"),
         }
     return None
@@ -2132,6 +2160,7 @@ def execute_signal(sig: dict, equity: float) -> bool:
     feedback  = load_feedback()
     blend     = 0.8 if len(feedback) >= 20 else 0.5
     risk_pct  = blend * kelly_pct + (1 - blend) * RISK["max_risk_per_trade_pct"]
+    risk_pct  = min(risk_pct, RISK["max_risk_per_trade_pct"] * 1.5)  # hard backstop
     log(f"  Kelly: {kelly_pct:.2%} | Fixed: {RISK['max_risk_per_trade_pct']:.2%} | Blend: {risk_pct:.2%}")
     shares = max(1, int(equity * risk_pct / rps))
     shares = min(shares, int(equity * RISK["max_position_pct"] / sig["entry"]))
@@ -4124,6 +4153,16 @@ def commit_state_to_github():
         "Accept":        "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",   # Fixed: was "2026-11-28"
     }
+    # Truncate bot.log to the last 400 lines before committing — the log
+    # persists across runs via the Actions cache and otherwise grows forever,
+    # bloating every commit. Dashboard only shows the last 100 lines anyway.
+    try:
+        lp = STATE_DIR / "bot.log"
+        if lp.exists():
+            tail = lp.read_text().strip().split("\n")[-400:]
+            lp.write_text("\n".join(tail) + "\n")
+    except Exception as e:
+        log(f"  Log truncation failed: {e}", "WARN")
     files_to_commit = [
         "trades.json", "feedback.json", "backtest_latest.json",
         "auto_adjust_latest.json", "bot.log", "watchlist.json",
