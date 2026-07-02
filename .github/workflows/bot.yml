@@ -12,11 +12,25 @@ on:
         required: false
         default: '180'
   schedule:
-    - cron: '*/5 13-20 * * 1-5'
-    - cron: '*/2 13-14 * * 1-5'
-    - cron: '*/2 19-20 * * 1-5'
-    - cron: '0 0 * * *'
-    - cron: '0 12 * * 0'
+    # Crons are UTC and do NOT follow daylight saving. These windows are
+    # widened to cover the 9:30-4:00 ET session in BOTH EDT (UTC-4) and
+    # EST (UTC-5). The bot's own is_good_trading_time() gate (which runs on
+    # ET) decides whether a given tick actually scans, so the off-session
+    # extra runs exit in seconds and cost nothing.
+    - cron: '*/5 12-21 * * 1-5'   # every 5 min, covers full session year-round
+    - cron: '*/2 13-15 * * 1-5'   # open burst (9:30 EDT / 9:30 EST both covered)
+    - cron: '*/2 18-21 * * 1-5'   # close burst + EOD close both timezones
+    - cron: '0 0 * * *'           # nightly (daily review / backtest)
+    - cron: '0 12 * * 0'          # Sunday (weekly research digest)
+
+# Prevents two runs from executing simultaneously. Without this, the
+# overlapping crons above (or a slow run + the next tick) could both see
+# 0 open positions and both submit the same orders. cancel-in-progress is
+# false so a run that's mid-order never gets killed; the newer run queues
+# (GitHub keeps at most one queued per group).
+concurrency:
+  group: boticus-run
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -25,6 +39,7 @@ permissions:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,13 +85,11 @@ jobs:
           path: bot_state
           key: bot-state-${{ github.run_number }}
 
-      - name: Commit state to repo
-        run: |
-          git config user.email "bot@boticus.app"
-          git config user.name "Boticus"
-          git add bot_state/ || true
-          git diff --staged --quiet || git commit -m "bot: update state [skip ci]"
-          git push || true
+      # NOTE: the "Commit state to repo" git-push step is intentionally REMOVED.
+      # bot.py already commits state files via the GitHub Contents API at the
+      # end of each run (commit_state_to_github). Having both created a race:
+      # the API commits moved the remote ahead, the git push here failed
+      # non-fast-forward, and the `|| true` silently swallowed it. One writer.
 
       - name: Upload logs
         if: always()
