@@ -12,7 +12,7 @@ Setup:
 """
 
 import os, json, base64, requests
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -25,6 +25,10 @@ GITHUB_REPO      = os.environ.get("GITHUB_REPOSITORY", "")
 ALPACA_KEY       = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET    = os.environ.get("ALPACA_SECRET_KEY", "")
 ALPACA_BASE      = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+# Shared secret: verifies Telegram webhook calls AND gates admin/cron routes.
+# Set WEBHOOK_SECRET in Render env vars (any long random string), then visit
+# /set_webhook?key=<secret> once to re-register the webhook with it.
+WEBHOOK_SECRET   = os.environ.get("WEBHOOK_SECRET", "")
 
 ALPACA_HEADERS = {
     "APCA-API-KEY-ID":     ALPACA_KEY,
@@ -329,7 +333,7 @@ def handle(text: str, chat_id: str):
         ok = write_state("paused.json", {
             "paused":    True,
             "reason":    reason,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         send(chat_id,
             f"Trading PAUSED\nReason: {reason}\n"
@@ -338,7 +342,7 @@ def handle(text: str, chat_id: str):
 
     # ── /resume ──────────────────────────────────────────────────────────────
     elif cmd == "resume":
-        ok = write_state("paused.json", {"paused": False, "reason": "", "timestamp": datetime.utcnow().isoformat()})
+        ok = write_state("paused.json", {"paused": False, "reason": "", "timestamp": datetime.now(timezone.utc).isoformat()})
         send(chat_id,
             "Trading RESUMED.\n"
             f"{'Written to repo — takes effect immediately.' if ok else 'Write failed — takes effect on next bot run.'}"
@@ -346,10 +350,12 @@ def handle(text: str, chat_id: str):
 
     # ── /eod ─────────────────────────────────────────────────────────────────
     elif cmd == "eod":
-        triggered = trigger_workflow("scan")
+        # FIX: previously triggered a plain "scan", which does NOT close
+        # positions — the message was a lie. bot.py now has a real "eod" mode.
+        triggered = trigger_workflow("eod")
         send(chat_id,
-            "EOD close triggered — bot will close all positions on next run." if triggered
-            else "Trigger failed."
+            "EOD close triggered — closing all open positions (~1-2 min)." if triggered
+            else "Trigger failed — check GitHub Actions."
         )
 
     # ── /feed ────────────────────────────────────────────────────────────────
@@ -364,7 +370,7 @@ def handle(text: str, chat_id: str):
             "impact":     "neutral",
             "confidence": "medium",
             "actionable": "review before trading",
-            "added_at":   datetime.utcnow().isoformat()[:10],
+            "added_at":   datetime.now(timezone.utc).isoformat()[:10],
         })
         existing = existing[-50:]
         ok = write_state("fed_insights.json", existing)
@@ -384,14 +390,31 @@ def handle(text: str, chat_id: str):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    # SECURITY FIX 1: verify the request actually came from Telegram.
+    # Without this, anyone who finds the URL can POST a forged update with
+    # your chat_id in the body and run /pause, /eod, or /feed (injecting
+    # text straight into the AI scoring pipeline). Telegram echoes back the
+    # secret we register in set_webhook via this header on every call.
+    if WEBHOOK_SECRET:
+        tg_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if tg_secret != WEBHOOK_SECRET:
+            print("[webhook] BLOCKED — bad or missing secret token header")
+            return jsonify({"ok": True}), 200  # 200 so probers learn nothing
+    else:
+        print("[webhook] WARNING: WEBHOOK_SECRET not set — webhook is spoofable")
+
     data    = request.get_json(silent=True) or {}
     msg     = data.get("message", {})
     text    = msg.get("text", "")
     chat_id = str(msg.get("chat", {}).get("id", ""))
-    print(f"[webhook] received text={text!r} chat_id={chat_id!r} expected={TELEGRAM_CHAT_ID!r}")
+    print(f"[webhook] received text={text!r} chat_id={chat_id!r}")
     if text and text.startswith("/") and chat_id:
+        # SECURITY FIX 2: the old code printed "BLOCKED" here but then called
+        # handle() anyway (only handle's internal gate saved it), and echoed
+        # exception text to ANY chat_id. Now unauthorized chats get nothing.
         if str(chat_id) != str(TELEGRAM_CHAT_ID):
-            print(f"[webhook] BLOCKED — chat_id mismatch: got {chat_id!r}, expected {TELEGRAM_CHAT_ID!r}")
+            print(f"[webhook] BLOCKED — chat_id mismatch: got {chat_id!r}")
+            return jsonify({"ok": True})
         try:
             handle(text, chat_id)
         except Exception as e:
@@ -405,14 +428,25 @@ def health():
     return "Boticus TG Server — OK"
 
 
+def _authorized() -> bool:
+    """Admin/cron routes require ?key=<WEBHOOK_SECRET>. Open if unset (legacy)."""
+    if not WEBHOOK_SECRET:
+        return True
+    return request.args.get("key", "") == WEBHOOK_SECRET
+
+
 @app.route("/cron_scan", methods=["GET", "POST"])
 def cron_scan():
     """
     Reliable external trigger for bot.py scans.
-    Call this from cron-job.org every 5 minutes during market hours.
+    Call this from cron-job.org every 5 minutes during market hours:
+    https://<your-app>.onrender.com/cron_scan?key=<WEBHOOK_SECRET>
     Only triggers during actual market hours (9:30 AM - 4:00 PM ET, Mon-Fri)
     to avoid wasting GitHub Actions minutes outside trading hours.
     """
+    # SECURITY FIX: unauthenticated, this let anyone burn your Actions minutes.
+    if not _authorized():
+        return jsonify({"error": "unauthorized"}), 403
     from zoneinfo import ZoneInfo
     now_et = datetime.now(ZoneInfo("America/New_York"))
     is_weekday = now_et.weekday() < 5
@@ -439,10 +473,16 @@ def set_webhook():
     Visit this URL once after deploying to Render to register the webhook.
     Example: https://boticus-tg.onrender.com/set_webhook
     """
-    host = request.host_url.rstrip("/")
+    if not _authorized():
+        return jsonify({"error": "unauthorized"}), 403
+    host    = request.host_url.rstrip("/")
+    payload = {"url": f"{host}/webhook", "drop_pending_updates": True}
+    if WEBHOOK_SECRET:
+        # Telegram will echo this back on every webhook call — see /webhook check
+        payload["secret_token"] = WEBHOOK_SECRET
     r = requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-        json={"url": f"{host}/webhook", "drop_pending_updates": True},
+        json=payload,
         timeout=10
     )
     return jsonify(r.json())
@@ -451,6 +491,8 @@ def set_webhook():
 @app.route("/delete_webhook", methods=["GET"])
 def delete_webhook():
     """Visit to remove webhook and go back to polling mode."""
+    if not _authorized():
+        return jsonify({"error": "unauthorized"}), 403
     r = requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
         timeout=10
