@@ -1128,11 +1128,21 @@ def fetch_price_data():
                              "PBW","KRE","XHB","ITB","VNQ","XLRE"}
             if symbol not in EARNINGS_SKIP:
                 try:
+                    # yfinance changed .calendar from a DataFrame to a dict —
+                    # the old DataFrame-only code raised on every symbol, so
+                    # earnings_within_5d was ALWAYS False and the bot could
+                    # walk straight into earnings reports. Handle both shapes.
                     cal = tick.calendar
-                    if cal is not None and not cal.empty and "Earnings Date" in cal.index:
+                    ed  = None
+                    if isinstance(cal, dict):
+                        eds = cal.get("Earnings Date") or []
+                        if eds: ed = eds[0]
+                    elif cal is not None and hasattr(cal, "empty") and not cal.empty \
+                            and "Earnings Date" in cal.index:
                         ed = cal.loc["Earnings Date"]
                         if hasattr(ed, "iloc"): ed = ed.iloc[0]
-                        if hasattr(ed, "date"): ed = ed.date()
+                    if ed is not None:
+                        if hasattr(ed, "date") and not isinstance(ed, date): ed = ed.date()
                         days = (ed - date.today()).days
                         earnings_5d = 0 <= days <= 5
                         earnings_dt = str(ed)
