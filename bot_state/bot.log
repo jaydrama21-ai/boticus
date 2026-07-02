@@ -1,183 +1,3 @@
-[10:40:56] WARN    RKLB: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:40:57] INFO    RKLB   $ 102.25 (+2.2%)  RSI: 49.0  ATR:9.50%  Vol:0.8x  dn
-[10:40:57] WARN    SMCI: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:40:57] INFO    MACRO TRIGGER on SMCI: taiwan
-[10:40:57] INFO    MACRO ALERT on SMCI: taiwan
-[10:40:57] INFO    SMCI   $  27.90 (+0.9%)  RSI: 40.9  ATR:10.65%  Vol:0.7x  dn NEG
-[10:40:57] WARN    HOOD: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:40:57] INFO    MACRO TRIGGER on HOOD: trump
-[10:40:57] INFO    MACRO ALERT on HOOD: trump
-[10:40:57] INFO    HOOD   $ 115.83 (+6.6%)  RSI: 68.8  ATR:5.91%  Vol:2.1x  -> NEG
-[10:40:58] INFO  Account equity: $927,679.70 | Buying power: $3,710,718.80
-[10:40:58] INFO  Macro alert already sent today — skipping
-[10:40:58] INFO  
--- Position Monitor ------------------------------------------
-[10:40:58] INFO  Syncing positions from Alpaca...
-[10:40:58] INFO  Position sync: no changes
-[10:40:58] INFO  No open positions — monitor complete
-[10:40:58] INFO  Open positions: 0/6
-[10:40:58] INFO  Scanning 62 tickers | open | Regime:ranging | VIX:16.0
-[10:40:58] INFO    IWM LONG rejected: 1H trend bearish (price $299.27 vs SMA20 $300.09)
-[10:40:58] INFO    AAPL LONG rejected: 1H RSI out of range (83.4)
-[10:40:59] INFO    C LONG rejected: 1H trend bearish (price $140.10 vs SMA20 $140.88)
-[10:40:59] INFO    IJR LONG rejected: 1H trend bearish (price $147.08 vs SMA20 $147.95)
-[10:40:59] INFO  Scan complete: 0 signal(s) | 28 near-misses
-[10:40:59] INFO  Near-misses: XLI 78 (Vol 0.7x (need 0.8x)) | UUP 77 (criteria below threshold) | IWM 77 (Vol 0.6x (need 0.8x))
-[10:40:59] INFO  No signals this run — exiting
-[10:40:59] INFO    SHA check trades.json: 200
-[10:41:00] INFO    Commit trades.json: 200
-[10:41:00] INFO    Committed trades.json to repo
-[10:41:00] INFO    SHA check feedback.json: 200
-[10:41:01] INFO    Commit feedback.json: 200
-[10:41:01] INFO    Committed feedback.json to repo
-[10:41:01] INFO    SHA check backtest_latest.json: 200
-[10:41:02] INFO    Commit backtest_latest.json: 200
-[10:41:02] INFO    Committed backtest_latest.json to repo
-[10:41:02] INFO    SHA check auto_adjust_latest.json: 200
-[10:41:03] INFO    Commit auto_adjust_latest.json: 200
-[10:41:03] INFO    Committed auto_adjust_latest.json to repo
-[10:41:04] INFO    SHA check bot.log: 200
-[10:41:05] INFO    Commit bot.log: 200
-[10:41:05] INFO    Committed bot.log to repo
-[10:41:05] INFO    SHA check watchlist.json: 200
-[10:41:05] INFO    Commit watchlist.json: 200
-[10:41:05] INFO    Committed watchlist.json to repo
-[10:41:06] INFO    SHA check research_digest.json: 200
-[10:41:06] INFO    Commit research_digest.json: 200
-[10:41:06] INFO    Committed research_digest.json to repo
-[10:41:07] INFO    SHA check fed_insights.json: 200
-[10:41:07] INFO    Commit fed_insights.json: 200
-[10:41:07] INFO    Committed fed_insights.json to repo
-[10:41:08] INFO    SHA check tg_offset.json: 200
-[10:41:08] INFO    Commit tg_offset.json: 200
-[10:41:08] INFO    Committed tg_offset.json to repo
-[10:41:08] INFO    Skip paused.json — not found at bot_state/paused.json
-[10:41:08] INFO    SHA check near_miss.json: 200
-[10:41:09] INFO    Commit near_miss.json: 200
-[10:41:09] INFO    Committed near_miss.json to repo
-[10:41:09] INFO    SHA check last_run.json: 200
-[10:41:10] INFO    Commit last_run.json: 200
-[10:41:10] INFO    Committed last_run.json to repo
-[10:41:10] INFO  State commit complete: 11/12 files
-[10:42:34] INFO  ============================================================
-[10:42:34] INFO  TRADING BOT RUN | 2026-07-02 10:42 ET | open | mode=scan
-[10:42:34] INFO  Paper mode: True | Telegram: yes
-[10:42:34] INFO  ============================================================
-[10:42:35] INFO  Fetching macro data...
-[10:42:37] INFO    Futures: ES=+0.38% NQ=-0.42% Gold=+1.65% -> MILDLY-RISK-OFF
-[10:42:37] INFO    Fed:3.63% CPI:4.3% VIX:16.1(normal) Regime:ranging
-[10:42:37] INFO    Scanning StockTwits sentiment...
-[10:42:38] INFO    Fear & Greed: 35 (fear) +0.0 from yesterday
-[10:42:38] INFO    Market breadth: 50% above SMA50 — neutral
-[10:42:38] INFO  Fetching price data for 62 tickers...
-[10:42:38] INFO    MACRO TRIGGER on SPY: trump
-[10:42:38] INFO    MACRO ALERT on SPY: trump
-[10:42:38] INFO    SPY    $ 746.67 (+0.1%)  RSI: 55.4  ATR:1.31%  Vol:0.6x  up NEG
-[10:42:39] INFO    MACRO TRIGGER on QQQ: trump, iran
-[10:42:39] INFO    MACRO ALERT on QQQ: trump, iran
-[10:42:39] INFO    QQQ    $ 718.79 (-0.9%)  RSI: 50.3  ATR:2.19%  Vol:0.8x  up NEG
-[10:42:39] INFO    IWM    $ 298.62 (-0.2%)  RSI: 60.2  ATR:1.75%  Vol:0.6x  up
-[10:42:40] INFO    MACRO TRIGGER on DIA: trump, iran
-[10:42:40] INFO    MACRO ALERT on DIA: trump, iran
-[10:42:40] INFO    DIA    $ 526.12 (+0.7%)  RSI: 68.0  ATR:1.14%  Vol:0.6x  up NEG
-[10:42:40] INFO    MDY    $ 696.19 (-0.1%)  RSI: 57.6  ATR:1.37%  Vol:0.4x  up
-[10:42:41] INFO    VXX    $  22.02 (-1.3%)  RSI: 37.3  ATR:4.71%  Vol:0.8x  dn
-[10:42:41] INFO    EEM    $  66.04 (-0.7%)  RSI: 45.8  ATR:2.60%  Vol:0.8x  dn
-[10:42:41] INFO    EFA    $ 104.67 (+1.6%)  RSI: 57.8  ATR:1.29%  Vol:0.7x  up
-[10:42:42] INFO    MACRO TRIGGER on FXI: china
-[10:42:42] INFO    MACRO ALERT on FXI: china
-[10:42:42] INFO    FXI    $  31.83 (-0.4%)  RSI: 29.4  ATR:1.71%  Vol:1.2x  dn NEG
-[10:42:42] INFO    EWJ    $  93.58 (+0.6%)  RSI: 54.0  ATR:1.67%  Vol:1.0x  up
-[10:42:43] INFO    IEUR   $  76.03 (+2.1%)  RSI: 60.5  ATR:1.28%  Vol:0.3x  up
-[10:42:43] WARN    AAPL: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:43] INFO    AAPL   $ 305.61 (+3.8%)  RSI: 58.6  ATR:2.79%  Vol:1.0x  up NEG
-[10:42:44] WARN    MSFT: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:44] INFO    MSFT   $ 388.05 (+1.0%)  RSI: 48.8  ATR:3.34%  Vol:0.7x  dn
-[10:42:44] WARN    NVDA: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:44] INFO    MACRO TRIGGER on NVDA: semiconductor
-[10:42:44] INFO    MACRO ALERT on NVDA: semiconductor
-[10:42:44] INFO    NVDA   $ 196.41 (-0.6%)  RSI: 42.4  ATR:3.48%  Vol:0.7x  dn NEG
-[10:42:45] WARN    GOOGL: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:45] INFO    MACRO TRIGGER on GOOGL: trump
-[10:42:45] INFO    MACRO ALERT on GOOGL: trump
-[10:42:45] INFO    GOOGL  $ 362.48 (+0.4%)  RSI: 51.2  ATR:3.08%  Vol:0.5x  dn NEG
-[10:42:45] WARN    META: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:45] INFO    MACRO TRIGGER on META: trump
-[10:42:45] INFO    MACRO ALERT on META: trump
-[10:42:45] INFO    META   $ 588.80 (-3.9%)  RSI: 51.2  ATR:3.73%  Vol:1.4x  dn NEG
-[10:42:45] WARN    AMZN: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:46] INFO    AMZN   $ 245.02 (+1.4%)  RSI: 50.7  ATR:3.31%  Vol:0.7x  dn
-[10:42:46] WARN    TSLA: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:46] INFO    MACRO TRIGGER on TSLA: china
-[10:42:46] INFO    MACRO ALERT on TSLA: china
-[10:42:46] INFO    TSLA   $ 397.11 (-6.6%)  RSI: 47.9  ATR:4.80%  Vol:1.9x  dn NEG
-[10:42:46] WARN    AMD: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:46] INFO    AMD    $ 518.69 (-4.1%)  RSI: 52.4  ATR:6.74%  Vol:0.8x  up
-[10:42:47] WARN    PLTR: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:47] INFO    PLTR   $ 130.13 (+3.5%)  RSI: 52.2  ATR:5.19%  Vol:1.8x  dn
-[10:42:47] WARN    COIN: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:47] INFO    COIN   $ 166.59 (+4.6%)  RSI: 51.5  ATR:6.84%  Vol:1.6x  dn
-[10:42:48] WARN    JPM: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:48] INFO    MACRO TRIGGER on JPM: trump
-[10:42:48] INFO    MACRO ALERT on JPM: trump
-[10:42:48] INFO    JPM    $ 332.97 (-0.3%)  RSI: 62.0  ATR:2.20%  Vol:0.4x  up NEG
-[10:42:48] WARN    BAC: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:48] INFO    BAC    $  58.46 (+0.2%)  RSI: 69.7  ATR:2.00%  Vol:0.5x  up
-[10:42:49] WARN    GS: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:49] INFO    GS     $1025.54 (+0.6%)  RSI: 48.1  ATR:3.03%  Vol:0.4x  up
-[10:42:49] WARN    MS: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:49] INFO    MS     $ 213.15 (+0.6%)  RSI: 51.6  ATR:2.73%  Vol:0.4x  up
-[10:42:50] WARN    C: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:50] INFO    C      $ 139.77 (-0.3%)  RSI: 55.5  ATR:2.43%  Vol:0.5x  up
-[10:42:50] WARN    XOM: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:51] INFO    XOM    $ 138.55 (+1.7%)  RSI: 40.7  ATR:2.38%  Vol:0.3x  dn
-[10:42:51] WARN    CVX: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:51] INFO    CVX    $ 168.97 (+2.0%)  RSI: 35.4  ATR:2.37%  Vol:0.6x  dn
-[10:42:52] WARN    UNH: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:52] INFO    UNH    $ 428.00 (+0.3%)  RSI: 66.9  ATR:2.31%  Vol:0.3x  up
-[10:42:53] WARN    LLY: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:53] INFO    LLY    $1228.74 (+3.1%)  RSI: 69.2  ATR:3.21%  Vol:0.6x  up
-[10:42:53] WARN    ABBV: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:42:53] INFO    ABBV   $ 258.09 (+2.8%)  RSI: 75.9  ATR:2.50%  Vol:0.3x  ->
-[10:42:54] INFO    XLK    $ 182.97 (-1.4%)  RSI: 49.4  ATR:3.12%  Vol:0.7x  up
-[10:42:54] INFO    XLF    $  55.26 (+0.9%)  RSI: 72.0  ATR:1.38%  Vol:0.9x  up
-[10:42:55] INFO    XLE    $  53.39 (+1.1%)  RSI: 39.2  ATR:2.15%  Vol:0.8x  dn
-[10:42:55] INFO    XLV    $ 163.15 (+2.3%)  RSI: 72.2  ATR:1.57%  Vol:0.9x  up
-[10:42:55] INFO    XBI    $ 158.73 (+1.4%)  RSI: 75.4  ATR:2.57%  Vol:1.0x  up
-[10:42:56] INFO    XRT    $  87.31 (-0.6%)  RSI: 56.4  ATR:1.93%  Vol:0.7x  ->
-[10:42:56] INFO    XLU    $  45.26 (+1.1%)  RSI: 53.9  ATR:1.45%  Vol:0.9x  up
-[10:42:57] INFO    XLI    $ 184.19 (+0.5%)  RSI: 61.2  ATR:1.71%  Vol:0.7x  up
-[10:42:57] INFO    XLP    $  84.50 (+1.4%)  RSI: 54.4  ATR:1.40%  Vol:0.7x  up
-[10:42:58] INFO    TLT    $  85.50 (-0.0%)  RSI: 48.1  ATR:0.72%  Vol:0.7x  ->
-[10:42:58] INFO    GLD    $ 377.86 (+2.0%)  RSI: 41.8  ATR:2.20%  Vol:1.1x  dn
-[10:42:58] INFO    SLV    $  55.34 (+3.3%)  RSI: 39.1  ATR:4.54%  Vol:1.2x  dn
-[10:42:59] INFO    MACRO TRIGGER on USO: iran, oil
-[10:42:59] INFO    MACRO ALERT on USO: iran, oil
-[10:42:59] INFO    USO    $ 102.71 (-0.5%)  RSI: 28.8  ATR:4.62%  Vol:0.5x  dn NEG
-[10:42:59] INFO    UUP    $  28.31 (-0.6%)  RSI: 58.8  ATR:0.42%  Vol:1.9x  up
-[10:43:00] INFO    IJR    $ 146.96 (-0.4%)  RSI: 65.5  ATR:1.48%  Vol:0.8x  up
-[10:43:00] WARN    NTLA: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:00] INFO    NTLA   $  17.64 (+2.3%)  RSI: 69.7  ATR:6.63%  Vol:0.8x  up
-[10:43:00] WARN    AA: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:01] INFO    AA     $  49.65 (+4.6%)  RSI: 31.1  ATR:7.12%  Vol:1.4x  dn
-[10:43:01] WARN    ARM: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:01] INFO    ARM    $ 331.72 (-1.7%)  RSI: 47.7  ATR:10.01%  Vol:0.6x  up
-[10:43:01] WARN    LDOS: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:01] INFO    LDOS   $ 107.28 (+4.1%)  RSI: 37.8  ATR:3.93%  Vol:0.5x  dn
-[10:43:02] WARN    ALGM: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:02] INFO    ALGM   $  58.97 (-6.7%)  RSI: 54.4  ATR:8.12%  Vol:0.6x  up
-[10:43:02] WARN    BA: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:02] INFO    MACRO TRIGGER on BA: trump, trump, iran
-[10:43:02] INFO    MACRO ALERT on BA: trump, trump, iran
-[10:43:02] INFO    BA     $ 226.03 (+3.4%)  RSI: 55.7  ATR:2.97%  Vol:1.3x  up NEG
-[10:43:03] WARN    RIVN: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:03] INFO    RIVN   $  18.96 (+10.3%)  RSI: 66.3  ATR:5.73%  Vol:3.8x  ->
-[10:43:03] WARN    RBLX: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:03] INFO    RBLX   $  54.62 (-5.8%)  RSI: 60.7  ATR:6.34%  Vol:0.8x  ->
-[10:43:04] WARN    SNAP: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:04] INFO    SNAP   $   4.78 (+0.7%)  RSI: 43.7  ATR:5.98%  Vol:0.5x  dn
-[10:43:04] WARN    RARE: earnings calendar failed ('dict' object has no attribute 'empty')
-[10:43:04] INFO    RARE   $  32.57 (+0.6%)  RSI: 74.0  ATR:4.54%  Vol:0.2x  ->
 [10:43:04] WARN    CRWD: earnings calendar failed ('dict' object has no attribute 'empty')
 [10:43:05] INFO    CRWD   $ 195.27 (+1.1%)  RSI: 72.6  ATR:4.24%  Vol:0.5x  up
 [10:43:05] WARN    PANW: earnings calendar failed ('dict' object has no attribute 'empty')
@@ -410,3 +230,183 @@
 [10:45:53] INFO    SHA check auto_adjust_latest.json: 200
 [10:45:53] INFO    Commit auto_adjust_latest.json: 200
 [10:45:53] INFO    Committed auto_adjust_latest.json to repo
+[10:45:54] INFO    SHA check bot.log: 200
+[10:45:55] INFO    Commit bot.log: 200
+[10:45:55] INFO    Committed bot.log to repo
+[10:45:55] INFO    SHA check watchlist.json: 200
+[10:45:55] INFO    Commit watchlist.json: 200
+[10:45:55] INFO    Committed watchlist.json to repo
+[10:45:56] INFO    SHA check research_digest.json: 200
+[10:45:56] INFO    Commit research_digest.json: 200
+[10:45:56] INFO    Committed research_digest.json to repo
+[10:45:57] INFO    SHA check fed_insights.json: 200
+[10:45:58] INFO    Commit fed_insights.json: 200
+[10:45:58] INFO    Committed fed_insights.json to repo
+[10:45:58] INFO    SHA check tg_offset.json: 200
+[10:45:59] INFO    Commit tg_offset.json: 200
+[10:45:59] INFO    Committed tg_offset.json to repo
+[10:45:59] INFO    Skip paused.json — not found at bot_state/paused.json
+[10:45:59] INFO    SHA check near_miss.json: 200
+[10:46:00] INFO    Commit near_miss.json: 200
+[10:46:00] INFO    Committed near_miss.json to repo
+[10:46:00] INFO    SHA check last_run.json: 200
+[10:46:01] INFO    Commit last_run.json: 200
+[10:46:01] INFO    Committed last_run.json to repo
+[10:46:01] INFO  State commit complete: 11/12 files
+[11:30:58] INFO  ============================================================
+[11:30:58] INFO  TRADING BOT RUN | 2026-07-02 11:30 ET | open | mode=scan
+[11:30:58] INFO  Paper mode: True | Telegram: yes
+[11:30:58] INFO  ============================================================
+[11:30:58] INFO  Fetching macro data...
+[11:31:00] INFO    Futures: ES=-0.17% NQ=-1.45% Gold=+1.70% -> RISK-OFF
+[11:31:00] INFO    Fed:3.63% CPI:4.3% VIX:16.5(normal) Regime:ranging
+[11:31:00] INFO    Scanning StockTwits sentiment...
+[11:31:00] INFO    Fear & Greed: 32 (fear) +0.0 from yesterday
+[11:31:00] INFO    Market breadth: 50% above SMA50 — neutral
+[11:31:00] INFO  Fetching price data for 62 tickers...
+[11:31:01] INFO    MACRO TRIGGER on SPY: trump
+[11:31:01] INFO    MACRO ALERT on SPY: trump
+[11:31:01] INFO    SPY    $ 745.45 (-0.0%)  RSI: 54.6  ATR:1.33%  Vol:0.6x  up NEG
+[11:31:01] INFO    MACRO TRIGGER on QQQ: trump, iran
+[11:31:01] INFO    MACRO ALERT on QQQ: trump, iran
+[11:31:01] INFO    QQQ    $ 716.54 (-1.2%)  RSI: 49.5  ATR:2.24%  Vol:0.9x  up NEG
+[11:31:01] INFO    IWM    $ 297.67 (-0.6%)  RSI: 58.5  ATR:1.80%  Vol:0.7x  up
+[11:31:02] INFO    MACRO TRIGGER on DIA: trump, iran
+[11:31:02] INFO    MACRO ALERT on DIA: trump, iran
+[11:31:02] INFO    DIA    $ 526.11 (+0.7%)  RSI: 68.0  ATR:1.14%  Vol:0.6x  up NEG
+[11:31:02] INFO    MDY    $ 693.98 (-0.4%)  RSI: 55.8  ATR:1.42%  Vol:0.4x  up
+[11:31:02] INFO    VXX    $  22.30 (-0.1%)  RSI: 38.6  ATR:4.67%  Vol:0.9x  dn
+[11:31:02] INFO    EEM    $  65.92 (-0.8%)  RSI: 45.4  ATR:2.64%  Vol:0.9x  dn
+[11:31:02] INFO    EFA    $ 104.56 (+1.5%)  RSI: 57.4  ATR:1.29%  Vol:0.7x  up
+[11:31:02] INFO    MACRO TRIGGER on FXI: china
+[11:31:02] INFO    MACRO ALERT on FXI: china
+[11:31:02] INFO    FXI    $  31.83 (-0.5%)  RSI: 29.3  ATR:1.72%  Vol:1.2x  dn NEG
+[11:31:03] INFO    EWJ    $  93.36 (+0.3%)  RSI: 53.2  ATR:1.67%  Vol:1.0x  up
+[11:31:03] INFO    IEUR   $  75.96 (+2.0%)  RSI: 60.2  ATR:1.28%  Vol:0.3x  up
+[11:31:03] WARN    AAPL: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:03] INFO    AAPL   $ 305.86 (+3.9%)  RSI: 58.8  ATR:2.82%  Vol:1.0x  up NEG
+[11:31:03] WARN    MSFT: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:03] INFO    MSFT   $ 387.86 (+0.9%)  RSI: 48.7  ATR:3.34%  Vol:0.7x  dn
+[11:31:04] WARN    NVDA: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:04] INFO    MACRO TRIGGER on NVDA: semiconductor
+[11:31:04] INFO    MACRO ALERT on NVDA: semiconductor
+[11:31:04] INFO    NVDA   $ 195.10 (-1.3%)  RSI: 41.4  ATR:3.57%  Vol:0.7x  dn NEG
+[11:31:04] WARN    GOOGL: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:04] INFO    MACRO TRIGGER on GOOGL: trump
+[11:31:04] INFO    MACRO ALERT on GOOGL: trump
+[11:31:04] INFO    GOOGL  $ 357.13 (-1.1%)  RSI: 47.8  ATR:3.15%  Vol:0.5x  dn NEG
+[11:31:04] WARN    META: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:04] INFO    MACRO TRIGGER on META: trump
+[11:31:04] INFO    MACRO ALERT on META: trump
+[11:31:04] INFO    META   $ 587.64 (-4.1%)  RSI: 50.9  ATR:3.77%  Vol:1.2x  dn NEG
+[11:31:04] WARN    AMZN: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:04] INFO    AMZN   $ 245.28 (+1.5%)  RSI: 50.9  ATR:3.32%  Vol:0.6x  dn
+[11:31:04] WARN    TSLA: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:04] INFO    MACRO TRIGGER on TSLA: china
+[11:31:04] INFO    MACRO ALERT on TSLA: china
+[11:31:04] INFO    TSLA   $ 397.15 (-6.6%)  RSI: 47.9  ATR:4.85%  Vol:1.7x  dn NEG
+[11:31:05] WARN    AMD: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:05] INFO    AMD    $ 518.80 (-4.1%)  RSI: 52.4  ATR:6.80%  Vol:0.8x  up
+[11:31:05] WARN    PLTR: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:05] INFO    PLTR   $ 129.12 (+2.7%)  RSI: 51.4  ATR:5.23%  Vol:1.6x  dn
+[11:31:05] WARN    COIN: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:05] INFO    COIN   $ 166.95 (+4.8%)  RSI: 51.7  ATR:6.82%  Vol:1.3x  dn
+[11:31:05] WARN    JPM: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:05] INFO    MACRO TRIGGER on JPM: trump
+[11:31:05] INFO    MACRO ALERT on JPM: trump
+[11:31:05] INFO    JPM    $ 334.35 (+0.1%)  RSI: 63.6  ATR:2.19%  Vol:0.3x  up NEG
+[11:31:06] WARN    BAC: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:06] INFO    BAC    $  58.65 (+0.5%)  RSI: 70.5  ATR:2.00%  Vol:0.6x  up
+[11:31:06] WARN    GS: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:06] INFO    GS     $1023.51 (+0.4%)  RSI: 47.6  ATR:3.04%  Vol:0.4x  up
+[11:31:06] WARN    MS: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:07] INFO    MS     $ 213.85 (+0.9%)  RSI: 52.4  ATR:2.72%  Vol:0.4x  up
+[11:31:07] WARN    C: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:07] INFO    C      $ 140.10 (-0.0%)  RSI: 56.3  ATR:2.43%  Vol:0.5x  up
+[11:31:07] WARN    XOM: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:07] INFO    XOM    $ 137.80 (+1.1%)  RSI: 38.8  ATR:2.39%  Vol:0.3x  dn
+[11:31:08] WARN    CVX: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:08] INFO    CVX    $ 168.40 (+1.6%)  RSI: 34.2  ATR:2.38%  Vol:0.6x  dn
+[11:31:08] WARN    UNH: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:08] INFO    UNH    $ 429.96 (+0.8%)  RSI: 67.7  ATR:2.31%  Vol:0.4x  up
+[11:31:09] WARN    LLY: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:09] INFO    LLY    $1217.47 (+2.2%)  RSI: 67.9  ATR:3.24%  Vol:0.6x  up
+[11:31:09] WARN    ABBV: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:09] INFO    ABBV   $ 258.99 (+3.2%)  RSI: 76.3  ATR:2.55%  Vol:0.3x  ->
+[11:31:09] INFO    XLK    $ 181.88 (-2.0%)  RSI: 48.4  ATR:3.20%  Vol:0.7x  up
+[11:31:09] INFO    XLF    $  55.42 (+1.2%)  RSI: 72.8  ATR:1.38%  Vol:0.9x  up
+[11:31:09] INFO    XLE    $  53.18 (+0.7%)  RSI: 37.7  ATR:2.16%  Vol:0.7x  dn
+[11:31:10] INFO    XLV    $ 163.44 (+2.4%)  RSI: 72.5  ATR:1.59%  Vol:1.0x  up
+[11:31:10] INFO    XBI    $ 158.60 (+1.3%)  RSI: 75.3  ATR:2.58%  Vol:0.9x  up
+[11:31:10] INFO    XRT    $  87.40 (-0.5%)  RSI: 56.8  ATR:1.94%  Vol:0.7x  ->
+[11:31:10] INFO    XLU    $  45.38 (+1.4%)  RSI: 54.9  ATR:1.47%  Vol:0.9x  up
+[11:31:11] INFO    XLI    $ 183.41 (+0.0%)  RSI: 60.1  ATR:1.74%  Vol:0.7x  up
+[11:31:11] INFO    XLP    $  84.74 (+1.7%)  RSI: 55.5  ATR:1.43%  Vol:0.8x  up
+[11:31:11] INFO    TLT    $  85.72 (+0.2%)  RSI: 50.2  ATR:0.74%  Vol:0.7x  ->
+[11:31:12] INFO    GLD    $ 378.50 (+2.1%)  RSI: 42.3  ATR:2.19%  Vol:0.9x  dn
+[11:31:12] INFO    SLV    $  55.27 (+3.2%)  RSI: 38.9  ATR:4.55%  Vol:1.0x  dn
+[11:31:12] INFO    MACRO TRIGGER on USO: iran, oil
+[11:31:12] INFO    MACRO ALERT on USO: iran, oil
+[11:31:12] INFO    USO    $ 102.68 (-0.6%)  RSI: 28.7  ATR:4.63%  Vol:0.4x  dn NEG
+[11:31:12] INFO    UUP    $  28.30 (-0.7%)  RSI: 58.1  ATR:0.42%  Vol:1.7x  up
+[11:31:12] INFO    IJR    $ 146.54 (-0.7%)  RSI: 63.8  ATR:1.52%  Vol:0.7x  up
+[11:31:12] WARN    NTLA: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:12] INFO    NTLA   $  17.96 (+4.2%)  RSI: 71.0  ATR:6.51%  Vol:0.6x  up
+[11:31:13] WARN    AA: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:13] INFO    AA     $  49.00 (+3.2%)  RSI: 29.6  ATR:7.21%  Vol:1.2x  dn
+[11:31:13] WARN    ARM: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:13] INFO    ARM    $ 324.77 (-3.8%)  RSI: 46.4  ATR:10.42%  Vol:0.6x  up
+[11:31:13] WARN    LDOS: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:13] INFO    LDOS   $ 107.26 (+4.1%)  RSI: 37.8  ATR:3.93%  Vol:0.5x  dn
+[11:31:13] WARN    ALGM: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:13] INFO    ALGM   $  57.62 (-8.8%)  RSI: 52.9  ATR:8.48%  Vol:0.7x  up
+[11:31:14] WARN    BA: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:14] INFO    MACRO TRIGGER on BA: trump, trump, iran
+[11:31:14] INFO    MACRO ALERT on BA: trump, trump, iran
+[11:31:14] INFO    BA     $ 224.47 (+2.7%)  RSI: 54.4  ATR:2.99%  Vol:1.1x  up NEG
+[11:31:14] WARN    RIVN: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:14] INFO    RIVN   $  19.04 (+10.8%)  RSI: 66.6  ATR:5.71%  Vol:3.3x  ->
+[11:31:14] WARN    RBLX: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:14] INFO    RBLX   $  55.03 (-5.0%)  RSI: 61.6  ATR:6.29%  Vol:0.6x  ->
+[11:31:14] WARN    SNAP: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:14] INFO    SNAP   $   4.84 (+1.8%)  RSI: 45.0  ATR:5.92%  Vol:0.5x  dn
+[11:31:15] WARN    RARE: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:15] INFO    RARE   $  33.02 (+2.0%)  RSI: 75.0  ATR:4.48%  Vol:0.2x  ->
+[11:31:15] WARN    CRWD: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:15] INFO    CRWD   $ 196.55 (+1.7%)  RSI: 73.2  ATR:4.22%  Vol:0.6x  up
+[11:31:15] WARN    PANW: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:15] INFO    PANW   $ 349.63 (-0.7%)  RSI: 79.6  ATR:3.79%  Vol:0.6x  up
+[11:31:15] WARN    RKLB: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:15] INFO    RKLB   $ 100.45 (+0.4%)  RSI: 47.8  ATR:9.77%  Vol:0.8x  dn
+[11:31:15] WARN    SMCI: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:15] INFO    MACRO TRIGGER on SMCI: taiwan
+[11:31:15] INFO    MACRO ALERT on SMCI: taiwan
+[11:31:15] INFO    SMCI   $  27.72 (+0.3%)  RSI: 40.5  ATR:10.79%  Vol:0.6x  dn NEG
+[11:31:16] WARN    HOOD: earnings calendar failed ('dict' object has no attribute 'empty')
+[11:31:16] INFO    MACRO TRIGGER on HOOD: trump
+[11:31:16] INFO    MACRO ALERT on HOOD: trump
+[11:31:16] INFO    HOOD   $ 113.82 (+4.8%)  RSI: 67.7  ATR:6.01%  Vol:1.8x  -> NEG
+[11:31:16] INFO  Account equity: $927,679.70 | Buying power: $3,710,718.80
+[11:31:16] INFO  Macro alert already sent today — skipping
+[11:31:16] INFO  
+-- Position Monitor ------------------------------------------
+[11:31:16] INFO  Syncing positions from Alpaca...
+[11:31:16] INFO  Position sync: no changes
+[11:31:16] INFO  No open positions — monitor complete
+[11:31:16] INFO  Open positions: 0/6
+[11:31:16] INFO  Scanning 62 tickers | open | Regime:ranging | VIX:16.5
+[11:31:16] INFO  Scan complete: 0 signal(s) | 0 near-misses
+[11:31:17] INFO  Telegram sent (269 chars) attempt 1
+[11:31:17] INFO  No signals this run — exiting
+[11:31:17] INFO    SHA check trades.json: 200
+[11:31:18] INFO    Commit trades.json: 200
+[11:31:18] INFO    Committed trades.json to repo
+[11:31:18] INFO    SHA check feedback.json: 200
+[11:31:19] INFO    Commit feedback.json: 200
+[11:31:19] INFO    Committed feedback.json to repo
+[11:31:19] INFO    SHA check backtest_latest.json: 200
+[11:31:20] INFO    Commit backtest_latest.json: 200
+[11:31:20] INFO    Committed backtest_latest.json to repo
+[11:31:20] INFO    SHA check auto_adjust_latest.json: 200
+[11:31:20] INFO    Commit auto_adjust_latest.json: 200
+[11:31:20] INFO    Committed auto_adjust_latest.json to repo
