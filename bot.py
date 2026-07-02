@@ -1516,8 +1516,16 @@ def scan_short(symbol) -> dict | None:
 
     intraday_breakdown   = spy_down_hard and vix_not_low and futures_bearish
     regime_allows_shorts = m.market_regime in ("trending_down", "volatile")
+    # FIX: MODE A below was unreachable dead code. Its own logic supports
+    # ranging regimes (mac_score=70 for ranging) and gates itself on
+    # risk_score <= -1 and VIX not low — but this top gate blocked the path
+    # unless the regime had already broken or SPY was down 1.5% intraday.
+    # Result: on risk-off days with a flat index (futures bearish, gold up,
+    # weak names breaking down) the bot could neither long NOR short.
+    # MODE A's internal gates still enforce all its discipline below.
+    mode_a_allowed = (m.risk_score <= -1 and m.vix_regime != "low")
 
-    if not regime_allows_shorts and not intraday_breakdown:
+    if not regime_allows_shorts and not intraday_breakdown and not mode_a_allowed:
         return None
 
     # ── MODE B — INTRADAY BREAKDOWN ──────────────────────────────────────────
@@ -1700,6 +1708,51 @@ def scan_diagnostic(symbol: str, direction: str) -> dict | None:
             "criteria": round(criteria, 1), "rsi": t.rsi_14,
             "vol": t.vol_ratio, "change_pct": t.change_pct,
             "blockers": blockers or ["criteria below threshold"],
+            "scanned_at": datetime.now(ET).strftime("%H:%M"),
+        }
+
+    if direction == "short":
+        # Only diagnose shorts when shorts are actually in play — otherwise
+        # every quiet bull-market scan would spam 62 phantom "near-misses".
+        spy       = tickers.get("SPY")
+        spy_down  = bool(spy and spy.change_pct <= -1.5)
+        regime_ok = m.market_regime in ("trending_down", "volatile")
+        mode_a_ok = m.risk_score <= -1 and m.vix_regime != "low"
+        if not (regime_ok or spy_down or mode_a_ok):
+            return None
+        # Needs actual short structure to count as a near-miss
+        confirmed_down = t.price < t.sma_50 < t.sma_200
+        overbought_rev = t.rsi_14 > 72 and t.price > t.sma_50
+        if not confirmed_down and not overbought_rev:
+            return None
+        blockers = []
+        if confirmed_down and t.rsi_14 >= 55:
+            blockers.append(f"RSI {t.rsi_14:.0f} (downtrend short needs <55)")
+        if not confirmed_down and t.rsi_14 <= 68:
+            blockers.append(f"RSI {t.rsi_14:.0f} (reversal short needs >68)")
+        if t.vol_ratio < 1.3:
+            blockers.append(f"Vol {t.vol_ratio:.1f}x (want 1.3x+)")
+        if t.atr_pct > RISK["atr_pct_max"]:
+            blockers.append(f"ATR {t.atr_pct:.2%} (max {RISK['atr_pct_max']:.2%})")
+        # Mirror of MODE A partial criteria
+        if confirmed_down:
+            trend_score = min(100, 90 + (t.sma_50 - t.price) / t.sma_50 * 200)
+            mom_score   = max(0, 100 - t.rsi_14 * 1.2)
+        else:
+            trend_score = 70
+            mom_score   = min(100, max(0, (t.rsi_14 - 65) * 5))
+        vol_score = min(100, 55 + (t.vol_ratio - 1) * 25)
+        atr_score = 100 if 0.01 <= t.atr_pct <= 0.03 else 80
+        mac_score = (100 if m.market_regime == "trending_down" else
+                     90  if m.market_regime == "volatile" else 70)
+        criteria = (trend_score*0.25 + mom_score*0.20 + vol_score*0.20 +
+                    atr_score*0.15 + mac_score*0.20)
+        if criteria < 35: return None
+        return {
+            "symbol": symbol, "direction": "short",
+            "criteria": round(criteria, 1), "rsi": t.rsi_14,
+            "vol": t.vol_ratio, "change_pct": t.change_pct,
+            "blockers": blockers or ["criteria below 55"],
             "scanned_at": datetime.now(ET).strftime("%H:%M"),
         }
     return None
@@ -2625,12 +2678,14 @@ def check_news_emergency_exit():
                 )
 
 
-def eod_close_all():
+def eod_close_all(force: bool = False):
     now         = datetime.now(ET)
     eod_enabled = os.environ.get("EOD_CLOSE", "true").lower() == "true"
     is_eod_window = (now.hour == 15 and now.minute >= 50) or \
                     (now.hour == 16 and now.minute == 0)
-    if not is_eod_window or not eod_enabled:
+    # force=True = manual /eod from Telegram — bypass the time window,
+    # otherwise a manual close sent at 1 PM would silently no-op.
+    if (not is_eod_window and not force) or not eod_enabled:
         return
     positions = get_open_positions()
     if not positions:
@@ -2808,7 +2863,73 @@ def run_position_monitor():
     # 8. EOD close check
     eod_close_all()
 
+    # 9. Daily wrap-up message (sends once per day near the close)
+    send_eod_summary()
+
     log("-- Monitor complete -------------------------------------------\n")
+
+
+def send_eod_summary():
+    """Once-a-day Telegram wrap-up near the close, even on zero-trade days.
+
+    Purpose: make 'quiet by choice' distinguishable from 'not running'.
+    Window is wider than the close-out window (15:45-16:10) so GitHub cron
+    jitter can't skip it; a dated flag file guarantees exactly one send.
+    """
+    now = datetime.now(ET)
+    in_window = (now.hour == 15 and now.minute >= 45) or \
+                (now.hour == 16 and now.minute <= 10)
+    if not in_window:
+        return
+    flag = STATE_DIR / f"eod_summary_{now.strftime('%Y%m%d')}.flag"
+    if flag.exists():
+        return
+
+    today = now.strftime("%Y-%m-%d")
+    try:
+        trades_all   = json.loads((STATE_DIR / "trades.json").read_text()) if (STATE_DIR / "trades.json").exists() else []
+        opened_today = [t for t in trades_all if str(t.get("entry_time", t.get("date", "")))[:10] == today]
+    except Exception:
+        opened_today = []
+    try:
+        fb           = load_feedback()
+        closed_today = [f for f in fb if str(f.get("date", ""))[:10] == today]
+        pnl_today    = sum(float(f.get("pnl_dollar", 0) or 0) for f in closed_today)
+    except Exception:
+        closed_today, pnl_today = [], 0.0
+    try:
+        nm_data = json.loads((STATE_DIR / "near_miss.json").read_text())
+        top_nm  = nm_data.get("near_misses", [])[:3]
+    except Exception:
+        top_nm = []
+    try:
+        open_ct = len(get_open_positions())
+    except Exception:
+        open_ct = 0
+
+    lines = [f"Daily wrap — {today}"]
+    if closed_today:
+        wins = sum(1 for f in closed_today if float(f.get("pnl_dollar", 0) or 0) > 0)
+        lines.append(f"Closed: {len(closed_today)} ({wins}W/{len(closed_today)-wins}L) | P&L: ${pnl_today:+,.2f}")
+    else:
+        lines.append("Closed: 0 trades")
+    lines.append(f"Opened: {len(opened_today)} | Still open: {open_ct}")
+    lines.append(f"Regime: {macro.market_regime} | VIX {macro.vix:.1f} | Risk {int(macro.risk_score or 0):+d}")
+    if top_nm:
+        nm_txt = ", ".join(
+            f"{n['symbol']} {n.get('criteria', 0):.0f}" +
+            (" (short)" if n.get("direction") == "short" else "")
+            for n in top_nm)
+        lines.append(f"Closest setups: {nm_txt}")
+    if not closed_today and not opened_today:
+        lines.append("Quiet day — no setups cleared the bar. Bot healthy.")
+
+    _tg("\n".join(lines))
+    try:
+        flag.write_text(now.isoformat())
+    except Exception:
+        pass
+    log("EOD summary sent")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3070,7 +3191,7 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
     elif cmd == "eod":
         reply("EOD Close triggered — closing all positions now...")
         try:
-            eod_close_all()
+            eod_close_all(force=True)
         except Exception as e:
             reply(f"EOD close error: {e}")
         return True
@@ -3480,7 +3601,7 @@ def main():
 
     if mode == "eod":
         log("Manual EOD close requested (Telegram /eod)")
-        eod_close_all()
+        eod_close_all(force=True)
         commit_state_to_github()
         return
 
