@@ -2887,6 +2887,34 @@ def get_tg_updates() -> list:
 
 _PAUSE_FILE = STATE_DIR / "paused.json"
 
+def pull_control_files_from_repo():
+    """Fetch paused.json and fed_insights.json from the repo at run start.
+
+    FIX: tg_server (/pause, /resume, /feed) writes these to the REPO via the
+    GitHub API, but the workflow's cache-restore step overwrites bot_state/
+    with LAST RUN's cached copies — clobbering your Telegram commands. The
+    repo copy is the user's latest intent, so pull it before reading.
+    """
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        return
+    import base64 as _b64
+    headers = {
+        "Authorization":        f"Bearer {GITHUB_TOKEN}",
+        "Accept":               "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    for fname in ("paused.json", "fed_insights.json"):
+        try:
+            r = requests.get(
+                f"https://api.github.com/repos/{GITHUB_REPO}/contents/bot_state/{fname}",
+                headers=headers, timeout=8)
+            if r.status_code == 200:
+                content = _b64.b64decode(r.json()["content"])
+                (STATE_DIR / fname).write_bytes(content)
+        except Exception as e:
+            log(f"Control-file pull failed for {fname}: {e}", "WARN")
+
+
 def is_paused() -> bool:
     try:
         if _PAUSE_FILE.exists():
@@ -3341,6 +3369,7 @@ def main():
     log(f"Paper mode: {PAPER_MODE} | Telegram: {'yes' if TELEGRAM_TOKEN else 'no'}")
     log("=" * 60)
     cleanup_flag_files()
+    pull_control_files_from_repo()
 
     if session == "closed" and mode == "scan":
         log("Keep-alive run — market closed, exiting cleanly")
@@ -3437,6 +3466,12 @@ def main():
                     alert_weekly_summary(weekly_review, stats)
                 except Exception as e:
                     log(f"Weekly review error: {e}", "ERROR")
+        return
+
+    if mode == "eod":
+        log("Manual EOD close requested (Telegram /eod)")
+        eod_close_all()
+        commit_state_to_github()
         return
 
     if mode == "status":
@@ -4137,12 +4172,36 @@ def run_auto_adjust(backtest: dict = None, notify: bool = True) -> dict:
 # STATE COMMIT
 # ══════════════════════════════════════════════════════════════════════════════
 
+def write_last_run():
+    """Snapshot of the current run for tg_server (/status, /regime, /debug).
+
+    FIX: last_run.json was in the commit list and read by tg_server, but
+    NOTHING ever wrote it — so Telegram always showed regime 'unknown',
+    VIX 0.0, and a blank last-run time.
+    """
+    try:
+        positions = get_open_positions()
+    except Exception:
+        positions = []
+    try:
+        (STATE_DIR / "last_run.json").write_text(json.dumps({
+            "timestamp":      datetime.now(ET).isoformat(),
+            "regime":         macro.market_regime,
+            "vix":            round(float(macro.vix or 0), 1),
+            "risk_score":     int(macro.risk_score or 0),
+            "open_positions": len(positions),
+        }, indent=2))
+    except Exception as e:
+        log(f"last_run write failed: {e}", "WARN")
+
+
 def commit_state_to_github():
     """
     Commits bot state files back to the GitHub repo so Streamlit Cloud can read live data.
     FIX: Header is "2022-11-28" — this is GitHub's API version label (released Nov 28 2022),
     NOT the current year. It does not change. The original had "2026-11-28" which caused 400 errors.
     """
+    write_last_run()  # refresh snapshot so tg_server always has current data
     if not GITHUB_TOKEN or not GITHUB_REPO:
         log("State commit: GITHUB_TOKEN or GITHUB_REPOSITORY not set — skipping", "WARN")
         return
