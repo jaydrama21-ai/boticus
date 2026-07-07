@@ -201,18 +201,15 @@ def update_dynamic_watchlist():
                 continue
             closes  = hist["Close"].values
             volumes = hist["Volume"].values
-            # Use completed bars only — today's partial bar would make every
-            # ticker look "stale" during market hours and prune good names.
-            full_vols = volumes[:-1] if len(volumes) > 1 else volumes
-            avg_vol = float(np.mean(full_vols))
+            avg_vol = float(np.mean(volumes))
             ret_3d    = (closes[-1] - closes[-3]) / closes[-3] * 100 if len(closes) >= 3 else 0
-            vol_ratio = float(full_vols[-1]) / avg_vol if avg_vol and len(full_vols) else 0
+            vol_ratio = float(volumes[-1]) / avg_vol if avg_vol else 0
             if avg_vol < MIN_VOLUME:
                 to_remove.append((sym, f"volume too low (avg {avg_vol:,.0f})"))
             elif abs(ret_3d) < 0.5 and vol_ratio < 0.8 and sym not in traded_syms:
                 to_remove.append((sym, f"stale: {ret_3d:+.1f}% 3d, {vol_ratio:.1f}x vol"))
-        except Exception as e:
-            to_remove.append((sym, f"data error: {e}"))
+        except:
+            to_remove.append((sym, "data error"))
     new_wl = list(CORE_WATCHLIST)
     kept = [s for s in dynamic_now if s not in [r[0] for r in to_remove]]
     new_wl.extend(kept)
@@ -260,7 +257,7 @@ RISK = {
     "max_open_positions":    6,
     "rsi_min":               55,
     "rsi_max":               72,
-    "volume_min_mult":       0.8,
+    "volume_min_mult":       0.5,
     "atr_pct_max":           0.04,
     "dead_money_hours":      4,
     "max_hold_hours":        6,
@@ -455,10 +452,7 @@ def kelly_size(equity, rr, ai_score):
     """Half-Kelly position sizing using live win rate. Falls back to fixed risk."""
     feedback = load_feedback()
     if len(feedback) < 10:
-        # FIX: was max_position_pct (5%) — but callers treat this value as
-        # RISK-per-trade, not position size. That blended to ~3.5% risk/trade
-        # with zero track record. Fall back to the intended 2% risk.
-        return RISK["max_risk_per_trade_pct"]
+        return RISK["max_position_pct"]
     wins  = sum(1 for t in feedback if t["result"] == "win")
     total = len(feedback)
     p = wins / total
@@ -467,8 +461,7 @@ def kelly_size(equity, rr, ai_score):
     half  = max(0.0, kelly / 2.0)
     ai_mult = 1.0 + max(0.0, (ai_score - 55) / 100.0)
     sized = half * ai_mult
-    # Cap in RISK units: allow a proven edge to size up to 1.5x base risk, no more
-    return max(0.005, min(RISK["max_risk_per_trade_pct"] * 1.5, sized))
+    return max(0.005, min(RISK["max_position_pct"], sized))
 
 
 def calc_market_breadth():
@@ -1060,22 +1053,6 @@ def fetch_sector_rotation() -> dict:
     return rotation
 
 
-def session_elapsed_fraction() -> float:
-    """Fraction of the regular session elapsed, adjusted for volume front-loading.
-
-    Intraday volume is U-shaped (heavy at open/close). Raising linear elapsed
-    time to the 0.75 power approximates the cumulative-volume curve well enough
-    for a ratio filter. Floor of 0.10 avoids divide-by-tiny right at the open.
-    """
-    now = datetime.now(ET)
-    open_t  = now.replace(hour=9,  minute=30, second=0, microsecond=0)
-    close_t = now.replace(hour=16, minute=0,  second=0, microsecond=0)
-    if now <= open_t:  return 0.10
-    if now >= close_t: return 1.0
-    frac = (now - open_t).total_seconds() / (close_t - open_t).total_seconds()
-    return max(0.10, min(1.0, frac ** 0.75))
-
-
 def get_market_session() -> str:
     now = datetime.now(ET)
     h   = now.hour + now.minute / 60
@@ -1100,17 +1077,17 @@ def fetch_price_data():
             prev_close = float(closes[-2]) if len(closes) > 1 else price
             change_pct = (price - prev_close) / prev_close * 100
             volume     = float(volumes[-1])
-            # Exclude today's PARTIAL bar from the 20-day average
-            if len(volumes) >= 21:
-                avg_vol = float(np.mean(volumes[-21:-1]))
-            else:
-                avg_vol = float(np.mean(volumes[:-1])) if len(volumes) > 1 else float(volumes[-1])
-            # Time-normalize: compare today's cumulative volume to what an
-            # average day would have traded by this point in the session.
-            # Without this, vol_ratio reads 0.1-0.3x all morning and blocks
-            # every signal (the old bug: partial day vs full-day average).
-            expected_by_now = avg_vol * session_elapsed_fraction()
-            vol_ratio  = volume / expected_by_now if expected_by_now else 0
+            avg_vol    = float(np.mean(volumes[-20:]))
+            vol_ratio  = volume / avg_vol if avg_vol else 0
+            # Normalize vol_ratio for time of day:
+            # At 10 AM we have 30 min of trading vs 390 min full day average
+            # Raw vol_ratio of 0.1x at 10 AM = actually healthy pacing
+            # Normalize so 0.1x at 10 AM (30/390 = 7.7% of day) → 1.3x normalized
+            _now_et = datetime.now(ET)
+            _mins_open = max(1, (_now_et.hour * 60 + _now_et.minute) - (9 * 60 + 30))
+            _day_fraction = min(1.0, _mins_open / 390)
+            if _day_fraction < 0.75 and _day_fraction > 0:
+                vol_ratio = vol_ratio / _day_fraction
             sma_50     = float(np.mean(closes[-50:]))  if len(closes) >= 50  else 0
             sma_200    = float(np.mean(closes[-200:])) if len(closes) >= 200 else 0
             rsi        = calc_rsi(closes)
@@ -1128,26 +1105,15 @@ def fetch_price_data():
                              "PBW","KRE","XHB","ITB","VNQ","XLRE"}
             if symbol not in EARNINGS_SKIP:
                 try:
-                    # yfinance changed .calendar from a DataFrame to a dict —
-                    # the old DataFrame-only code raised on every symbol, so
-                    # earnings_within_5d was ALWAYS False and the bot could
-                    # walk straight into earnings reports. Handle both shapes.
                     cal = tick.calendar
-                    ed  = None
-                    if isinstance(cal, dict):
-                        eds = cal.get("Earnings Date") or []
-                        if eds: ed = eds[0]
-                    elif cal is not None and hasattr(cal, "empty") and not cal.empty \
-                            and "Earnings Date" in cal.index:
+                    if cal is not None and not cal.empty and "Earnings Date" in cal.index:
                         ed = cal.loc["Earnings Date"]
                         if hasattr(ed, "iloc"): ed = ed.iloc[0]
-                    if ed is not None:
-                        if hasattr(ed, "date") and not isinstance(ed, date): ed = ed.date()
+                        if hasattr(ed, "date"): ed = ed.date()
                         days = (ed - date.today()).days
                         earnings_5d = 0 <= days <= 5
                         earnings_dt = str(ed)
-                except Exception as e:
-                    log(f"  {symbol}: earnings calendar failed ({e})", "WARN")
+                except: pass
             headlines = []; has_neg = False; headline_score = 0
             articles = []
             hs = {}  # initialize before try in case news fetch fails partway
@@ -1165,8 +1131,7 @@ def fetch_price_data():
                     hs = score_headlines(headlines, symbol)
                     has_neg      = hs["has_negative"]
                     headline_score = hs["score"]
-            except Exception as e:
-                log(f"  {symbol}: news fetch failed ({e})", "WARN")
+            except: pass
             t = TickerData(symbol)
             t.price = round(price, 2);  t.prev_close = round(prev_close, 2)
             t.change_pct = round(change_pct, 2)
@@ -1360,13 +1325,14 @@ def get_1h_confirmation(symbol: str, direction: str) -> tuple[bool, str]:
         sma8_1h    = float(np.mean(closes_1h[-8:]))
         rsi_1h     = calc_rsi(closes_1h)
         if direction == "long":
-            trend_ok = price_1h > sma8_1h > sma20_1h or price_1h > sma20_1h
-            rsi_ok   = 45 <= rsi_1h <= 75
-            if not trend_ok:
-                return False, f"1H trend bearish (price ${price_1h:.2f} vs SMA20 ${sma20_1h:.2f})"
-            if not rsi_ok:
-                return False, f"1H RSI out of range ({rsi_1h:.1f})"
-            return True, f"1H confirmed: RSI {rsi_1h:.1f}, above SMA20"
+            # Lenient check — just needs price above SMA20 OR RSI not extreme
+            trend_ok = price_1h > sma20_1h * 0.995  # within 0.5% of SMA20 is fine
+            rsi_ok   = 35 <= rsi_1h <= 80            # wider range for ranging markets
+            if not trend_ok and rsi_1h < 40:         # only hard-reject if both bad
+                return False, f"1H weak: price ${price_1h:.2f} vs SMA20 ${sma20_1h:.2f}, RSI {rsi_1h:.1f}"
+            if rsi_1h > 82:
+                return False, f"1H overbought: RSI {rsi_1h:.1f}"
+            return True, f"1H confirmed: RSI {rsi_1h:.1f}"
         else:
             trend_ok = price_1h < sma8_1h or price_1h < sma20_1h
             rsi_ok   = rsi_1h <= 60 or rsi_1h >= 70
@@ -1411,11 +1377,11 @@ def scan_long(symbol) -> dict | None:
     trend_score = min(100, 90 + pct_above_50 * 200)
     if not (RISK["rsi_min"] <= t.rsi_14 <= RISK["rsi_max"]): return None
     mom_score = max(50, 100 - abs(t.rsi_14 - 62) * 2.5)
-    # vol_ratio is now time-normalized (see fetch_price_data), so these
-    # thresholds mean "pace vs an average day", valid at any time of day.
-    if t.vol_ratio < 0.4: return None  # truly dead tape — skip
+    # No hard volume gate — vol_score handles it as soft penalty
+    # Low volume reduces score but doesn't auto-reject strong setups
     vol_score = min(100, 55 + (t.vol_ratio - 1) * 25)
     if t.vol_ratio < RISK["volume_min_mult"]: vol_score *= 0.6
+    if t.vol_ratio < 0.3: vol_score *= 0.4  # Very low volume = big penalty
     if t.atr_pct > RISK["atr_pct_max"]: return None
     if t.atr_pct < 0.005: return None
     atr_score = 100 if 0.01 <= t.atr_pct <= 0.025 else 75
@@ -1450,7 +1416,7 @@ def scan_long(symbol) -> dict | None:
                 reddit_adj + unusual_adj +
                 vwap_adj + sector_adj + earnings_adj +
                 insider_adj + options_adj + congress_adj + adx_adj)
-    min_criteria = 68 if ranging_mode else 58
+    min_criteria = 58  # Same threshold all regimes — mac_score already penalizes ranging
     if criteria < min_criteria: return None
     mtf_ok, mtf_reason = get_1h_confirmation(symbol, "long")
     if not mtf_ok:
@@ -1516,16 +1482,8 @@ def scan_short(symbol) -> dict | None:
 
     intraday_breakdown   = spy_down_hard and vix_not_low and futures_bearish
     regime_allows_shorts = m.market_regime in ("trending_down", "volatile")
-    # FIX: MODE A below was unreachable dead code. Its own logic supports
-    # ranging regimes (mac_score=70 for ranging) and gates itself on
-    # risk_score <= -1 and VIX not low — but this top gate blocked the path
-    # unless the regime had already broken or SPY was down 1.5% intraday.
-    # Result: on risk-off days with a flat index (futures bearish, gold up,
-    # weak names breaking down) the bot could neither long NOR short.
-    # MODE A's internal gates still enforce all its discipline below.
-    mode_a_allowed = (m.risk_score <= -1 and m.vix_regime != "low")
 
-    if not regime_allows_shorts and not intraday_breakdown and not mode_a_allowed:
+    if not regime_allows_shorts and not intraday_breakdown:
         return None
 
     # ── MODE B — INTRADAY BREAKDOWN ──────────────────────────────────────────
@@ -1703,56 +1661,16 @@ def scan_diagnostic(symbol: str, direction: str) -> dict | None:
         if not vol_ok:  blockers.append(f"Vol {t.vol_ratio:.1f}x (need {RISK['volume_min_mult']}x)")
         if not atr_ok:  blockers.append(f"ATR {t.atr_pct:.2%} (max {RISK['atr_pct_max']:.2%})")
         if criteria < 40: return None  # too far off, not worth logging
+        # Run MTF check so diagnostic shows real reason for scan_long rejection
+        if not blockers:
+            mtf_ok, mtf_reason = get_1h_confirmation(symbol, direction)
+            if not mtf_ok:
+                blockers.append(f"1H: {mtf_reason}")
         return {
             "symbol": symbol, "direction": direction,
             "criteria": round(criteria, 1), "rsi": t.rsi_14,
             "vol": t.vol_ratio, "change_pct": t.change_pct,
-            "blockers": blockers or ["criteria below threshold"],
-            "scanned_at": datetime.now(ET).strftime("%H:%M"),
-        }
-
-    if direction == "short":
-        # Only diagnose shorts when shorts are actually in play — otherwise
-        # every quiet bull-market scan would spam 62 phantom "near-misses".
-        spy       = tickers.get("SPY")
-        spy_down  = bool(spy and spy.change_pct <= -1.5)
-        regime_ok = m.market_regime in ("trending_down", "volatile")
-        mode_a_ok = m.risk_score <= -1 and m.vix_regime != "low"
-        if not (regime_ok or spy_down or mode_a_ok):
-            return None
-        # Needs actual short structure to count as a near-miss
-        confirmed_down = t.price < t.sma_50 < t.sma_200
-        overbought_rev = t.rsi_14 > 72 and t.price > t.sma_50
-        if not confirmed_down and not overbought_rev:
-            return None
-        blockers = []
-        if confirmed_down and t.rsi_14 >= 55:
-            blockers.append(f"RSI {t.rsi_14:.0f} (downtrend short needs <55)")
-        if not confirmed_down and t.rsi_14 <= 68:
-            blockers.append(f"RSI {t.rsi_14:.0f} (reversal short needs >68)")
-        if t.vol_ratio < 1.3:
-            blockers.append(f"Vol {t.vol_ratio:.1f}x (want 1.3x+)")
-        if t.atr_pct > RISK["atr_pct_max"]:
-            blockers.append(f"ATR {t.atr_pct:.2%} (max {RISK['atr_pct_max']:.2%})")
-        # Mirror of MODE A partial criteria
-        if confirmed_down:
-            trend_score = min(100, 90 + (t.sma_50 - t.price) / t.sma_50 * 200)
-            mom_score   = max(0, 100 - t.rsi_14 * 1.2)
-        else:
-            trend_score = 70
-            mom_score   = min(100, max(0, (t.rsi_14 - 65) * 5))
-        vol_score = min(100, 55 + (t.vol_ratio - 1) * 25)
-        atr_score = 100 if 0.01 <= t.atr_pct <= 0.03 else 80
-        mac_score = (100 if m.market_regime == "trending_down" else
-                     90  if m.market_regime == "volatile" else 70)
-        criteria = (trend_score*0.25 + mom_score*0.20 + vol_score*0.20 +
-                    atr_score*0.15 + mac_score*0.20)
-        if criteria < 35: return None
-        return {
-            "symbol": symbol, "direction": "short",
-            "criteria": round(criteria, 1), "rsi": t.rsi_14,
-            "vol": t.vol_ratio, "change_pct": t.change_pct,
-            "blockers": blockers or ["criteria below 55"],
+            "blockers": blockers or ["full adjustments push below 58"],
             "scanned_at": datetime.now(ET).strftime("%H:%M"),
         }
     return None
@@ -2223,7 +2141,6 @@ def execute_signal(sig: dict, equity: float) -> bool:
     feedback  = load_feedback()
     blend     = 0.8 if len(feedback) >= 20 else 0.5
     risk_pct  = blend * kelly_pct + (1 - blend) * RISK["max_risk_per_trade_pct"]
-    risk_pct  = min(risk_pct, RISK["max_risk_per_trade_pct"] * 1.5)  # hard backstop
     log(f"  Kelly: {kelly_pct:.2%} | Fixed: {RISK['max_risk_per_trade_pct']:.2%} | Blend: {risk_pct:.2%}")
     shares = max(1, int(equity * risk_pct / rps))
     shares = min(shares, int(equity * RISK["max_position_pct"] / sig["entry"]))
@@ -2678,14 +2595,12 @@ def check_news_emergency_exit():
                 )
 
 
-def eod_close_all(force: bool = False):
+def eod_close_all():
     now         = datetime.now(ET)
     eod_enabled = os.environ.get("EOD_CLOSE", "true").lower() == "true"
     is_eod_window = (now.hour == 15 and now.minute >= 50) or \
                     (now.hour == 16 and now.minute == 0)
-    # force=True = manual /eod from Telegram — bypass the time window,
-    # otherwise a manual close sent at 1 PM would silently no-op.
-    if (not is_eod_window and not force) or not eod_enabled:
+    if not is_eod_window or not eod_enabled:
         return
     positions = get_open_positions()
     if not positions:
@@ -2863,73 +2778,7 @@ def run_position_monitor():
     # 8. EOD close check
     eod_close_all()
 
-    # 9. Daily wrap-up message (sends once per day near the close)
-    send_eod_summary()
-
     log("-- Monitor complete -------------------------------------------\n")
-
-
-def send_eod_summary():
-    """Once-a-day Telegram wrap-up near the close, even on zero-trade days.
-
-    Purpose: make 'quiet by choice' distinguishable from 'not running'.
-    Window is wider than the close-out window (15:45-16:10) so GitHub cron
-    jitter can't skip it; a dated flag file guarantees exactly one send.
-    """
-    now = datetime.now(ET)
-    in_window = (now.hour == 15 and now.minute >= 45) or \
-                (now.hour == 16 and now.minute <= 10)
-    if not in_window:
-        return
-    flag = STATE_DIR / f"eod_summary_{now.strftime('%Y%m%d')}.flag"
-    if flag.exists():
-        return
-
-    today = now.strftime("%Y-%m-%d")
-    try:
-        trades_all   = json.loads((STATE_DIR / "trades.json").read_text()) if (STATE_DIR / "trades.json").exists() else []
-        opened_today = [t for t in trades_all if str(t.get("entry_time", t.get("date", "")))[:10] == today]
-    except Exception:
-        opened_today = []
-    try:
-        fb           = load_feedback()
-        closed_today = [f for f in fb if str(f.get("date", ""))[:10] == today]
-        pnl_today    = sum(float(f.get("pnl_dollar", 0) or 0) for f in closed_today)
-    except Exception:
-        closed_today, pnl_today = [], 0.0
-    try:
-        nm_data = json.loads((STATE_DIR / "near_miss.json").read_text())
-        top_nm  = nm_data.get("near_misses", [])[:3]
-    except Exception:
-        top_nm = []
-    try:
-        open_ct = len(get_open_positions())
-    except Exception:
-        open_ct = 0
-
-    lines = [f"Daily wrap — {today}"]
-    if closed_today:
-        wins = sum(1 for f in closed_today if float(f.get("pnl_dollar", 0) or 0) > 0)
-        lines.append(f"Closed: {len(closed_today)} ({wins}W/{len(closed_today)-wins}L) | P&L: ${pnl_today:+,.2f}")
-    else:
-        lines.append("Closed: 0 trades")
-    lines.append(f"Opened: {len(opened_today)} | Still open: {open_ct}")
-    lines.append(f"Regime: {macro.market_regime} | VIX {macro.vix:.1f} | Risk {int(macro.risk_score or 0):+d}")
-    if top_nm:
-        nm_txt = ", ".join(
-            f"{n['symbol']} {n.get('criteria', 0):.0f}" +
-            (" (short)" if n.get("direction") == "short" else "")
-            for n in top_nm)
-        lines.append(f"Closest setups: {nm_txt}")
-    if not closed_today and not opened_today:
-        lines.append("Quiet day — no setups cleared the bar. Bot healthy.")
-
-    _tg("\n".join(lines))
-    try:
-        flag.write_text(now.isoformat())
-    except Exception:
-        pass
-    log("EOD summary sent")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3017,34 +2866,6 @@ def get_tg_updates() -> list:
         return []
 
 _PAUSE_FILE = STATE_DIR / "paused.json"
-
-def pull_control_files_from_repo():
-    """Fetch paused.json and fed_insights.json from the repo at run start.
-
-    FIX: tg_server (/pause, /resume, /feed) writes these to the REPO via the
-    GitHub API, but the workflow's cache-restore step overwrites bot_state/
-    with LAST RUN's cached copies — clobbering your Telegram commands. The
-    repo copy is the user's latest intent, so pull it before reading.
-    """
-    if not GITHUB_TOKEN or not GITHUB_REPO:
-        return
-    import base64 as _b64
-    headers = {
-        "Authorization":        f"Bearer {GITHUB_TOKEN}",
-        "Accept":               "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    for fname in ("paused.json", "fed_insights.json"):
-        try:
-            r = requests.get(
-                f"https://api.github.com/repos/{GITHUB_REPO}/contents/bot_state/{fname}",
-                headers=headers, timeout=8)
-            if r.status_code == 200:
-                content = _b64.b64decode(r.json()["content"])
-                (STATE_DIR / fname).write_bytes(content)
-        except Exception as e:
-            log(f"Control-file pull failed for {fname}: {e}", "WARN")
-
 
 def is_paused() -> bool:
     try:
@@ -3191,7 +3012,7 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
     elif cmd == "eod":
         reply("EOD Close triggered — closing all positions now...")
         try:
-            eod_close_all(force=True)
+            eod_close_all()
         except Exception as e:
             reply(f"EOD close error: {e}")
         return True
@@ -3500,7 +3321,6 @@ def main():
     log(f"Paper mode: {PAPER_MODE} | Telegram: {'yes' if TELEGRAM_TOKEN else 'no'}")
     log("=" * 60)
     cleanup_flag_files()
-    pull_control_files_from_repo()
 
     if session == "closed" and mode == "scan":
         log("Keep-alive run — market closed, exiting cleanly")
@@ -3597,12 +3417,6 @@ def main():
                     alert_weekly_summary(weekly_review, stats)
                 except Exception as e:
                     log(f"Weekly review error: {e}", "ERROR")
-        return
-
-    if mode == "eod":
-        log("Manual EOD close requested (Telegram /eod)")
-        eod_close_all(force=True)
-        commit_state_to_github()
         return
 
     if mode == "status":
@@ -4303,36 +4117,12 @@ def run_auto_adjust(backtest: dict = None, notify: bool = True) -> dict:
 # STATE COMMIT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def write_last_run():
-    """Snapshot of the current run for tg_server (/status, /regime, /debug).
-
-    FIX: last_run.json was in the commit list and read by tg_server, but
-    NOTHING ever wrote it — so Telegram always showed regime 'unknown',
-    VIX 0.0, and a blank last-run time.
-    """
-    try:
-        positions = get_open_positions()
-    except Exception:
-        positions = []
-    try:
-        (STATE_DIR / "last_run.json").write_text(json.dumps({
-            "timestamp":      datetime.now(ET).isoformat(),
-            "regime":         macro.market_regime,
-            "vix":            round(float(macro.vix or 0), 1),
-            "risk_score":     int(macro.risk_score or 0),
-            "open_positions": len(positions),
-        }, indent=2))
-    except Exception as e:
-        log(f"last_run write failed: {e}", "WARN")
-
-
 def commit_state_to_github():
     """
     Commits bot state files back to the GitHub repo so Streamlit Cloud can read live data.
     FIX: Header is "2022-11-28" — this is GitHub's API version label (released Nov 28 2022),
     NOT the current year. It does not change. The original had "2026-11-28" which caused 400 errors.
     """
-    write_last_run()  # refresh snapshot so tg_server always has current data
     if not GITHUB_TOKEN or not GITHUB_REPO:
         log("State commit: GITHUB_TOKEN or GITHUB_REPOSITORY not set — skipping", "WARN")
         return
@@ -4343,16 +4133,6 @@ def commit_state_to_github():
         "Accept":        "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",   # Fixed: was "2026-11-28"
     }
-    # Truncate bot.log to the last 400 lines before committing — the log
-    # persists across runs via the Actions cache and otherwise grows forever,
-    # bloating every commit. Dashboard only shows the last 100 lines anyway.
-    try:
-        lp = STATE_DIR / "bot.log"
-        if lp.exists():
-            tail = lp.read_text().strip().split("\n")[-400:]
-            lp.write_text("\n".join(tail) + "\n")
-    except Exception as e:
-        log(f"  Log truncation failed: {e}", "WARN")
     files_to_commit = [
         "trades.json", "feedback.json", "backtest_latest.json",
         "auto_adjust_latest.json", "bot.log", "watchlist.json",
