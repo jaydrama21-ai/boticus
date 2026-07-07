@@ -1360,13 +1360,13 @@ def is_good_trading_time() -> tuple[bool, str]:
     h, m = now.hour, now.minute
     total_mins = h * 60 + m
     open_mins  = 9 * 60 + 30
-    buffer_end = 10 * 60 + 0
+    buffer_end = 9 * 60 + 40
     eod_start  = 15 * 60 + 30
     close_mins = 16 * 60 + 0
     if total_mins < open_mins:
         return False, "Pre-market — not scanning for new entries"
     if open_mins <= total_mins < buffer_end:
-        return False, f"Opening 30 min buffer — waiting until 10:00 AM (now {now.strftime('%H:%M')} ET)"
+        return False, f"Opening 10 min buffer — waiting until 9:40 AM (now {now.strftime('%H:%M')} ET)"
     if eod_start <= total_mins < close_mins:
         return False, f"EOD 30 min window — no new entries after 3:30 PM (now {now.strftime('%H:%M')} ET)"
     if total_mins >= close_mins:
@@ -2145,10 +2145,10 @@ def get_open_positions() -> list:
     except: pass
     return []
 
-def execute_signal(sig: dict, equity: float) -> bool:
-    if not sig.get("approved"): return False
+def execute_signal(sig: dict, equity: float) -> tuple[bool, int]:
+    if not sig.get("approved"): return False, 0
     rps    = abs(sig["entry"] - sig["stop"])
-    if rps <= 0: return False
+    if rps <= 0: return False, 0
     kelly_pct = kelly_size(equity, sig.get("rr", 1.5), sig.get("ai_score", 65))
     feedback  = load_feedback()
     blend     = 0.8 if len(feedback) >= 20 else 0.5
@@ -2199,12 +2199,12 @@ def execute_signal(sig: dict, equity: float) -> bool:
                 "paper_mode":  PAPER_MODE,
             })
             save_trades(trades)
-            return True
+            return True, shares
         else:
             log(f"  Order failed {r.status_code}: {r.text[:150]}", "ERROR")
     except Exception as e:
         log(f"  Execution error: {e}", "ERROR")
-    return False
+    return False, 0
 
 def check_daily_loss(equity: float) -> bool:
     trades = load_trades()
@@ -3542,12 +3542,10 @@ def main():
         scored = score_signal(sig)
         alert_signal(scored)
         if scored.get("approved"):
-            rps    = abs(scored["entry"] - scored["stop"])
-            shares = max(1, int(equity * RISK["max_risk_per_trade_pct"] / rps)) if rps else 1
-            shares = min(shares, int(equity * RISK["max_position_pct"] / scored["entry"]))
-            shares = max(1, int(shares * scored.get("size_adj", 1.0)))
-            risk_amt = shares * rps
-            if execute_signal(scored, equity):
+            rps = abs(scored["entry"] - scored["stop"])
+            success, shares = execute_signal(scored, equity)
+            if success:
+                risk_amt = shares * rps
                 alert_trade_open(scored, shares, risk_amt)
                 filled += 1
                 open_positions.append({"symbol": sig["symbol"]})
