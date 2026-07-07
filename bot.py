@@ -1077,17 +1077,29 @@ def fetch_price_data():
             prev_close = float(closes[-2]) if len(closes) > 1 else price
             change_pct = (price - prev_close) / prev_close * 100
             volume     = float(volumes[-1])
-            avg_vol    = float(np.mean(volumes[-20:]))
+            # Intraday, volumes[-1] is today's in-progress partial bar. Exclude
+            # it from the baseline so it doesn't drag avg_vol down (~4-7% early
+            # in the session) and overstate vol_ratio; after hours it's a full
+            # bar and either window is equivalent.
+            _now_et    = datetime.now(ET)
+            _mins_open = (_now_et.hour * 60 + _now_et.minute) - (9 * 60 + 30)
+            _market_open = _now_et.weekday() < 5 and 0 < _mins_open < 390
+            if _market_open and len(volumes) >= 21:
+                avg_vol = float(np.mean(volumes[-21:-1]))
+            else:
+                avg_vol = float(np.mean(volumes[-20:]))
             vol_ratio  = volume / avg_vol if avg_vol else 0
             # Normalize vol_ratio for time of day:
             # At 10 AM we have 30 min of trading vs 390 min full day average
             # Raw vol_ratio of 0.1x at 10 AM = actually healthy pacing
             # Normalize so 0.1x at 10 AM (30/390 = 7.7% of day) → 1.3x normalized
-            _now_et = datetime.now(ET)
-            _mins_open = max(1, (_now_et.hour * 60 + _now_et.minute) - (9 * 60 + 30))
-            _day_fraction = min(1.0, _mins_open / 390)
-            if _day_fraction < 0.75 and _day_fraction > 0:
-                vol_ratio = vol_ratio / _day_fraction
+            # ONLY during regular hours: pre-market / after-hours / weekend runs
+            # read the last completed daily bar (a full day's volume), so
+            # normalizing there would inflate vol_ratio by up to ~390x.
+            if _market_open:
+                _day_fraction = _mins_open / 390
+                if _day_fraction < 0.75:
+                    vol_ratio = vol_ratio / _day_fraction
             sma_50     = float(np.mean(closes[-50:]))  if len(closes) >= 50  else 0
             sma_200    = float(np.mean(closes[-200:])) if len(closes) >= 200 else 0
             rsi        = calc_rsi(closes)
