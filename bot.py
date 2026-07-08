@@ -1438,7 +1438,7 @@ def scan_long(symbol) -> dict | None:
     stop   = round(t.price - RISK["stop_loss_atr_mult"]   * atr, 2)
     target = round(t.price + RISK["take_profit_atr_mult"] * atr, 2)
     rr     = round((target - t.price) / (t.price - stop), 2) if t.price > stop else 0
-    if rr < 1.5: return None
+    if rr < 1.35: return None
     notes = [f"Trend up {pct_above_50:.1%} above SMA50",
              f"RSI={t.rsi_14:.1f} Vol={t.vol_ratio:.1f}x ATR={t.atr_pct:.2%}",
              mtf_reason]
@@ -1549,7 +1549,7 @@ def scan_short(symbol) -> dict | None:
         stop   = round(t.price + RISK["stop_loss_atr_mult"] * atr, 2)
         target = round(t.price - RISK["take_profit_atr_mult"] * atr, 2)
         rr     = round((t.price - target) / (stop - t.price), 2) if stop > t.price else 0
-        if rr < 1.5: return None
+        if rr < 1.35: return None
 
         spy_pct = spy.change_pct if spy else 0
         notes = [
