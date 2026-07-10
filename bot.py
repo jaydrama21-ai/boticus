@@ -2257,7 +2257,7 @@ def update_stop_loss(symbol: str, order_id: str, new_stop: float) -> bool:
         )
         if r.ok:
             parent = r.json()
-            legs   = parent.get("legs", [])
+            legs   = parent.get("legs") or []
             stop_leg_id = None
             for leg in legs:
                 leg_type = leg.get("type", "").lower()
@@ -2338,8 +2338,8 @@ def reprotect_positions():
             sym = o.get("symbol")
             if sym:
                 protected_syms.add(sym)
-        # Also check legs
-        for leg in o.get("legs", []):
+        # Also check legs (Alpaca returns "legs": null for simple orders)
+        for leg in (o.get("legs") or []):
             leg_type = leg.get("type", "").lower()
             if "stop" in leg_type or "limit" in leg_type:
                 protected_syms.add(o.get("symbol", ""))
