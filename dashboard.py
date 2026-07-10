@@ -1,8 +1,17 @@
 import streamlit as st, json, pandas as pd, altair as alt
 from pathlib import Path
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Boticus", page_icon="🤖", layout="wide")
+
+# ── Time (bot writes all timestamps in US/Eastern) ───────────────
+try:
+    from zoneinfo import ZoneInfo
+    ET = ZoneInfo("America/New_York")
+except Exception:
+    ET = None
+def now_et():
+    return datetime.now(ET) if ET else datetime.now()
 
 # ── Theme ────────────────────────────────────────────────────────
 POS, NEG, WARN, INFO, VIOLET, TEAL = "#22c55e", "#ef4444", "#f59e0b", "#3b82f6", "#a855f7", "#14b8a6"
@@ -69,8 +78,9 @@ nm       = load("near_miss.json")
 digest   = load("research_digest.json")
 
 open_t    = [t for t in trades if t.get("status") == "open"]
-today_str = date.today().isoformat()
-week_str  = (date.today() - timedelta(days=7)).isoformat()
+today_et  = now_et().date()
+today_str = today_et.isoformat()
+week_str  = (today_et - timedelta(days=7)).isoformat()
 wins      = [t for t in feedback if t.get("result") == "win"]
 losses    = [t for t in feedback if t.get("result") == "loss"]
 today_fb  = [t for t in feedback if t.get("date", "") == today_str]
@@ -127,7 +137,7 @@ with h1:
 with h2:
     st.markdown(
         f'<div style="text-align:right;opacity:.55;font-size:12.5px;padding-top:14px">'
-        f'auto-refresh 3 min · {datetime.now().strftime("%b %d · %H:%M ET")}</div>',
+        f'auto-refresh 3 min · {now_et().strftime("%b %d · %H:%M ET")}</div>',
         unsafe_allow_html=True)
 
 lr = load("last_run.json")
@@ -262,17 +272,20 @@ with t1:
                 b.metric("Current", f"${cur:.2f}", delta=f"{unp:+.1f}%")
                 c.metric("Stop", f"${stop:.2f}")
                 d.metric("Target", f"${tgt:.2f}")
-                # progress from stop -> target
+                # progress from stop -> target (target may sit below stop for shorts)
                 lo, hi = min(stop, tgt), max(stop, tgt)
                 if hi > lo:
                     frac = max(0.0, min(1.0, (cur - lo) / (hi - lo)))
                     ep   = max(0.0, min(1.0, (entry - lo) / (hi - lo)))
+                    left_stop = stop <= tgt  # long: stop on left; short: target on left
+                    left_lab  = f"stop ${stop:.2f}"   if left_stop else f"target ${tgt:.2f}"
+                    right_lab = f"target ${tgt:.2f}"   if left_stop else f"stop ${stop:.2f}"
                     st.markdown(
                         f'<div class="bar"><span style="width:{frac*100:.1f}%;'
                         f'background:{POS if unp>=0 else NEG}"></span>'
                         f'<span style="left:{ep*100:.1f}%;width:2px;background:#fff;opacity:.7"></span></div>'
                         f'<div style="display:flex;justify-content:space-between;font-size:11px;opacity:.55">'
-                        f'<span>stop ${lo:.2f}</span><span>entry ${entry:.2f}</span><span>target ${hi:.2f}</span></div>',
+                        f'<span>{left_lab}</span><span>entry ${entry:.2f}</span><span>{right_lab}</span></div>',
                         unsafe_allow_html=True)
                 e, f, g = st.columns(3)
                 e.metric("Shares", pos.get("shares", 0))
