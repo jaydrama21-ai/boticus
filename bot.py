@@ -268,12 +268,88 @@ RISK = {
 # retained — they fire only on confirmed risk-off selloffs and aren't in that sample.
 ENABLE_REGIME_SHORTS = False
 
+# ── Data-driven parameter overlay ───────────────────────────────────────────────
+# Backtest results feed live params through a reviewed overlay file, NOT by editing
+# this dict. Only the SIGNAL params below are auto-tunable, each hard-bounded. Risk
+# controls (max_risk_per_trade_pct, max_daily_loss_pct, max_position_pct,
+# max_open_positions) are deliberately NOT here — they protect capital and stay
+# human-only. See apply_risk_overrides() and run_auto_adjust().
+TUNABLE_BOUNDS = {
+    "rsi_min":              (45, 68),
+    "rsi_max":              (68, 82),
+    "volume_min_mult":      (0.5, 3.0),
+    "atr_pct_max":          (0.02, 0.08),
+    "stop_loss_atr_mult":   (1.0, 3.0),
+    "take_profit_atr_mult": (2.0, 5.0),
+}
+# Candidate must beat current true-EV (mean_pnl_pct) on the held-out window by at
+# least this margin (percentage points per trade) to be staged for approval.
+VALIDATION_MARGIN   = 0.05
+# Compact, liquid, representative set for fast walk-forward validation backtests.
+VALIDATION_SYMBOLS  = [
+    "SPY", "QQQ", "IWM", "DIA", "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN",
+    "JPM", "GS", "XOM", "CVX", "UNH", "LLY", "XLK", "XLF", "XLE", "XLV",
+    "XBI", "GLD", "TLT", "SLV",
+]
+
 # ── State files ────────────────────────────────────────────────────────────────
 STATE_DIR   = Path(os.environ.get("STATE_DIR", "/tmp/bot_state"))
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 TRADES_FILE   = STATE_DIR / "trades.json"
 FEEDBACK_FILE = STATE_DIR / "feedback.json"
 LOG_FILE      = STATE_DIR / "bot.log"
+RISK_OVERRIDE_FILE = STATE_DIR / "risk_overrides.json"          # active, applied at startup
+RISK_PENDING_FILE  = STATE_DIR / "risk_overrides_pending.json"  # proposed, awaiting /apply
+RISK_PREV_FILE     = STATE_DIR / "risk_overrides_prev.json"     # backup for /revert
+
+
+def _clamp_overlay(raw: dict) -> tuple[dict, list]:
+    """Filter a param dict to tunable signal params only, clamped to bounds.
+    Anything not in TUNABLE_BOUNDS (e.g. risk-control params) is dropped — this is
+    the structural guarantee that auto-tuning can never touch capital protection."""
+    clean, notes = {}, []
+    for k, v in (raw or {}).items():
+        if k not in TUNABLE_BOUNDS:
+            notes.append(f"{k}: not tunable — ignored")
+            continue
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            notes.append(f"{k}: non-numeric — ignored")
+            continue
+        lo, hi = TUNABLE_BOUNDS[k]
+        cv = max(lo, min(hi, v))
+        if cv != v:
+            notes.append(f"{k}: clamped {v}->{cv} to [{lo},{hi}]")
+        clean[k] = int(round(cv)) if k in ("rsi_min", "rsi_max") else round(cv, 3)
+    # Never let RSI band invert
+    if "rsi_min" in clean and "rsi_max" in clean and clean["rsi_min"] >= clean["rsi_max"]:
+        clean.pop("rsi_min"); clean.pop("rsi_max")
+        notes.append("rsi_min >= rsi_max — RSI override skipped")
+    return clean, notes
+
+
+def _overlay_params(path: Path) -> dict:
+    """Read an overlay file and return its clamped params ({} if absent/empty)."""
+    try:
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text())
+        clean, _ = _clamp_overlay(data.get("params", data))
+        return clean
+    except Exception:
+        return {}
+
+
+def apply_risk_overrides() -> dict:
+    """Overlay the reviewed risk_overrides.json onto the RISK defaults, in place.
+    Called at the start of main() so every scan in this run uses the live params."""
+    clean = _overlay_params(RISK_OVERRIDE_FILE)
+    if clean:
+        for k, v in clean.items():
+            RISK[k] = v
+        log(f"Applied risk overrides: {clean}")
+    return clean
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LOGGING
@@ -2938,6 +3014,9 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
             "Intelligence\n"
             "/research — run research digest\n"
             "/backtest — run 180-day backtest\n"
+            "/params — show effective tunable params\n"
+            "/apply — apply validated param proposal\n"
+            "/revert — undo last applied params\n"
             "/feed <text> — inject text into AI brain\n"
         )
         return True
@@ -3051,6 +3130,51 @@ def handle_tg_command(text: str, chat_id: str) -> bool:
                 run_auto_adjust(backtest=bt)
         except Exception as e:
             reply(f"Backtest error: {e}")
+        return True
+
+    elif cmd == "params":
+        apply_risk_overrides()
+        active = _overlay_params(RISK_OVERRIDE_FILE)
+        pend   = _overlay_params(RISK_PENDING_FILE)
+        lines  = "\n".join(f"  {k}: {RISK[k]}" for k in TUNABLE_BOUNDS)
+        reply(
+            "Effective tunable params:\n" + lines +
+            f"\n\nOverride active: {'yes ' + json.dumps(active) if active else 'no (bot.py defaults)'}"
+            f"\nPending proposal: {'yes — reply /apply. ' + json.dumps(pend) if pend else 'none'}"
+        )
+        return True
+
+    elif cmd == "apply":
+        pend = _overlay_params(RISK_PENDING_FILE)
+        if not pend:
+            reply("No pending proposal to apply. Run /backtest to generate one.")
+            return True
+        if RISK_OVERRIDE_FILE.exists():
+            RISK_PREV_FILE.write_text(RISK_OVERRIDE_FILE.read_text())
+        RISK_OVERRIDE_FILE.write_text(json.dumps({
+            "params": pend, "applied_at": datetime.now(ET).isoformat(),
+            "source": "auto_adjust /apply",
+        }, indent=2))
+        RISK_PENDING_FILE.write_text(json.dumps({"params": {}}, indent=2))
+        apply_risk_overrides()
+        commit_state_to_github()
+        reply("✅ Applied: " + json.dumps(pend) +
+              "\nLive from the next scan. Send /revert to undo.")
+        return True
+
+    elif cmd == "revert":
+        if RISK_PREV_FILE.exists() and _overlay_params(RISK_PREV_FILE):
+            RISK_OVERRIDE_FILE.write_text(RISK_PREV_FILE.read_text())
+            RISK_PREV_FILE.write_text(json.dumps({"params": {}}, indent=2))
+            commit_state_to_github()
+            reply("Reverted to previous overlay: " +
+                  json.dumps(_overlay_params(RISK_OVERRIDE_FILE)))
+        elif _overlay_params(RISK_OVERRIDE_FILE):
+            RISK_OVERRIDE_FILE.write_text(json.dumps({"params": {}}, indent=2))
+            commit_state_to_github()
+            reply("Cleared override — back to bot.py defaults.")
+        else:
+            reply("No override active — already on defaults.")
         return True
 
     elif cmd == "debug":
@@ -3338,6 +3462,7 @@ def main():
     log(f"TRADING BOT RUN | {now.strftime('%Y-%m-%d %H:%M ET')} | {session} | mode={mode}")
     log(f"Paper mode: {PAPER_MODE} | Telegram: {'yes' if TELEGRAM_TOKEN else 'no'}")
     log("=" * 60)
+    apply_risk_overrides()   # overlay reviewed backtest-driven params onto RISK
     cleanup_flag_files()
 
     if session == "closed" and mode == "scan":
@@ -3821,7 +3946,7 @@ def run_recent_regime_backtest(days: int = 60) -> dict:
 
 
 def run_backtest(symbols: list = None, lookback_days: int = 180,
-                 notify: bool = True) -> dict:
+                 notify: bool = True, save: bool = True) -> dict:
     symbols = symbols or get_watchlist()
     log(f"Running backtest: {len(symbols)} symbols, {lookback_days} days lookback")
     all_trades = []
@@ -3988,12 +4113,13 @@ def run_backtest(symbols: list = None, lookback_days: int = 180,
     for bucket, wr_val in vol_wr.items():
         log(f"  Vol {bucket}: {wr_val:.1f}% WR")
     log("=" * 60)
-    bt_file = STATE_DIR / "backtest_latest.json"
-    bt_file.write_text(json.dumps(
-        {k: v for k, v in summary.items() if k != "raw_trades"},
-        indent=2, default=str
-    ))
-    log(f"Backtest saved to {bt_file}")
+    if save:
+        bt_file = STATE_DIR / "backtest_latest.json"
+        bt_file.write_text(json.dumps(
+            {k: v for k, v in summary.items() if k != "raw_trades"},
+            indent=2, default=str
+        ))
+        log(f"Backtest saved to {bt_file}")
     if notify and TELEGRAM_TOKEN:
         best_regime = max(regime_stats, key=lambda r: regime_stats[r]["wins"]/regime_stats[r]["total"] if regime_stats[r]["total"] else 0) if regime_stats else "N/A"
         _tg(
@@ -4011,7 +4137,57 @@ def run_backtest(symbols: list = None, lookback_days: int = 180,
 # AUTO-ADJUST
 # ══════════════════════════════════════════════════════════════════════════════
 
-def run_auto_adjust(backtest: dict = None, notify: bool = True) -> dict:
+def _evaluate_overlay(overlay: dict, lookback_days: int, symbols: list) -> float | None:
+    """Return true per-trade EV (mean_pnl_pct) for RISK with `overlay` applied,
+    without mutating persisted state. Restores RISK afterward."""
+    snapshot = {k: RISK[k] for k in overlay}
+    try:
+        RISK.update(overlay)
+        bt = run_backtest(symbols=symbols, lookback_days=lookback_days,
+                          notify=False, save=False)
+        return bt.get("mean_pnl_pct") if bt else None
+    except Exception as e:
+        log(f"Overlay evaluation error: {e}", "WARN")
+        return None
+    finally:
+        RISK.update(snapshot)
+
+
+def stage_pending_overlay(adjustments: list) -> dict:
+    """Turn AI adjustment suggestions into a validated, staged proposal.
+
+    Only tunable signal params survive (risk controls are dropped). The candidate
+    is walk-forward validated: it must beat the CURRENT params' true per-trade EV
+    on a held-out recent window by VALIDATION_MARGIN before being written to the
+    pending file for /apply. Returns the proposal dict (with validation stats)."""
+    raw = {a.get("param"): a.get("suggested") for a in (adjustments or [])
+           if a.get("param") in TUNABLE_BOUNDS}
+    clean, notes = _clamp_overlay(raw)
+    proposal = {"params": clean, "notes": notes,
+                "proposed_at": datetime.now(ET).isoformat()}
+    if not clean:
+        proposal["validation"] = {"passed": False, "reason": "no tunable params suggested"}
+        return proposal
+    log(f"Validating candidate overlay {clean} on held-out {len(VALIDATION_SYMBOLS)}-symbol / 90d window...")
+    base = _evaluate_overlay({},    90, VALIDATION_SYMBOLS)   # current params
+    cand = _evaluate_overlay(clean, 90, VALIDATION_SYMBOLS)   # candidate params
+    passed = (base is not None and cand is not None
+              and cand > 0 and cand >= base + VALIDATION_MARGIN)
+    proposal["validation"] = {
+        "window_days": 90, "symbols": len(VALIDATION_SYMBOLS),
+        "base_mean_pnl": base, "cand_mean_pnl": cand,
+        "margin_required": VALIDATION_MARGIN, "passed": passed,
+    }
+    if passed:
+        RISK_PENDING_FILE.write_text(json.dumps(proposal, indent=2))
+        log(f"Overlay PASSED validation (base {base} -> cand {cand}) — staged for /apply")
+    else:
+        RISK_PENDING_FILE.write_text(json.dumps({"params": {}, "last_rejected": proposal}, indent=2))
+        log(f"Overlay FAILED validation (base {base} -> cand {cand}) — not staged", "WARN")
+    return proposal
+
+
+def run_auto_adjust(backtest: dict = None, notify: bool = True, stage: bool = True) -> dict:
     feedback = load_feedback()
     bt       = backtest or {}
     log("Running auto-adjust analysis...")
@@ -4075,6 +4251,11 @@ def run_auto_adjust(backtest: dict = None, notify: bool = True) -> dict:
         f"{bt_summary}\n\n"
         f"{current_config}\n\n"
         "Based on this data, suggest specific adjustments to improve performance.\n"
+        "Optimize for mean_pnl (TRUE per-trade EV), NOT the win/loss-only expectancy.\n"
+        f"Only these SIGNAL params are auto-applied (each bounded): "
+        f"{', '.join(f'{k}{TUNABLE_BOUNDS[k]}' for k in TUNABLE_BOUNDS)}. "
+        "You may still comment on risk-control params, but they are human-only and "
+        "will not be auto-applied.\n"
         "Output ONLY valid JSON — no markdown, no preamble.\n\n"
         "Format:\n"
         '{"adjustments": ['
@@ -4115,20 +4296,42 @@ def run_auto_adjust(backtest: dict = None, notify: bool = True) -> dict:
             log(f"  {adj['param']:30} {adj['current']} -> {adj['suggested']}")
             log(f"    Reason: {adj['reason']}")
         log("=" * 60)
-        log("NOTE: These are suggestions only. Edit RISK dict in bot.py to apply.")
         adj_file = STATE_DIR / "auto_adjust_latest.json"
         adj_file.write_text(json.dumps(result, indent=2))
+
+        # Walk-forward validate the tunable subset and stage it for one-tap /apply
+        proposal = stage_pending_overlay(adjustments) if stage else {"validation": {}}
+        v = proposal.get("validation", {})
+        result["proposal"] = proposal
+
         if notify and TELEGRAM_TOKEN and adjustments:
             adj_lines = "\n".join([
                 f"- {a['param']}: {a['current']} -> {a['suggested']}"
                 for a in adjustments[:5]
             ])
+            if v.get("passed"):
+                p_lines = "\n".join(f"- {k}: {val}" for k, val in proposal["params"].items())
+                verdict = (
+                    f"✅ *Validated* on held-out {v['window_days']}d: true EV "
+                    f"{v['base_mean_pnl']:+.3f}% → {v['cand_mean_pnl']:+.3f}% per trade.\n\n"
+                    f"*Staged for approval:*\n{p_lines}\n\n"
+                    f"Reply /apply to go live, or ignore to keep current params.\n"
+                    f"(Risk controls unchanged — signal params only.)"
+                )
+            elif proposal.get("params"):
+                verdict = (
+                    f"⚠️ Candidate did NOT beat current params on the held-out "
+                    f"{v.get('window_days','?')}d window "
+                    f"(EV {v.get('base_mean_pnl')} vs {v.get('cand_mean_pnl')}). "
+                    f"Not staged — keeping current params."
+                )
+            else:
+                verdict = "No tunable-param changes suggested. Not staged."
             _tg(
-                f"🔧 *Auto-Adjust Recommendations* (confidence: {confidence})\n\n"
+                f"🔧 *Auto-Adjust* (confidence: {confidence})\n\n"
                 f"{adj_lines}\n\n"
                 f"Priority: {priority}\n\n"
-                f"_{summary}_\n\n"
-                f"Edit RISK dict in bot.py to apply."
+                f"_{summary}_\n\n{verdict}"
             )
         return result
     except json.JSONDecodeError as e:
@@ -4163,6 +4366,7 @@ def commit_state_to_github():
         "auto_adjust_latest.json", "bot.log", "watchlist.json",
         "research_digest.json", "fed_insights.json", "tg_offset.json",
         "paused.json", "near_miss.json", "last_run.json",
+        "risk_overrides.json", "risk_overrides_pending.json", "risk_overrides_prev.json",
     ]
     committed = 0
     for filename in files_to_commit:
