@@ -163,6 +163,9 @@ def handle(text: str, chat_id: str):
             "Intelligence\n"
             "/backtest — run 180-day backtest\n"
             "/research — run research digest\n"
+            "/params — show tunable params + pending proposal\n"
+            "/apply — apply validated param proposal\n"
+            "/revert — undo last applied params\n"
             "/feed <text> — inject text into AI brain\n"
         )
 
@@ -380,6 +383,53 @@ def handle(text: str, chat_id: str):
             f"Preview: {args[:150]}..."
             if ok else "Write failed — try again."
         )
+
+    # ── /params ──────────────────────────────────────────────────────────────
+    elif cmd == "params":
+        active = (read_state("risk_overrides.json") or {}).get("params") or {}
+        pend   = (read_state("risk_overrides_pending.json") or {}).get("params") or {}
+        send(chat_id,
+            f"Override active: {json.dumps(active) if active else 'no (bot.py defaults)'}\n"
+            f"Pending proposal: {'yes — /apply to go live ' + json.dumps(pend) if pend else 'none'}"
+        )
+
+    # ── /apply ───────────────────────────────────────────────────────────────
+    # Promotes the validated pending overlay to active. bot.py re-clamps every
+    # param to its tunable bounds on load, so this can never apply risk-control
+    # params or out-of-range values regardless of what is written here.
+    elif cmd == "apply":
+        pending = read_state("risk_overrides_pending.json") or {}
+        pend    = pending.get("params") or {}
+        if not pend:
+            send(chat_id, "No pending proposal to apply. Run /backtest to generate one.")
+            return
+        current = read_state("risk_overrides.json")
+        if current and (current.get("params") or {}):
+            write_state("risk_overrides_prev.json", current)
+        ok1 = write_state("risk_overrides.json", {
+            "params":     pend,
+            "applied_at": datetime.now(timezone.utc).isoformat(),
+            "source":     "auto_adjust /apply (webhook)",
+            "validation": pending.get("validation"),
+        })
+        write_state("risk_overrides_pending.json", {"params": {}})
+        send(chat_id,
+            (f"✅ Applied: {json.dumps(pend)}\nLive from the next scan. /revert to undo."
+             if ok1 else "Write failed — try again.")
+        )
+
+    # ── /revert ──────────────────────────────────────────────────────────────
+    elif cmd == "revert":
+        prev = read_state("risk_overrides_prev.json") or {}
+        if prev.get("params"):
+            write_state("risk_overrides.json", prev)
+            write_state("risk_overrides_prev.json", {"params": {}})
+            send(chat_id, f"Reverted to previous overlay: {json.dumps(prev.get('params'))}")
+        elif (read_state("risk_overrides.json") or {}).get("params"):
+            write_state("risk_overrides.json", {"params": {}})
+            send(chat_id, "Cleared override — back to bot.py defaults.")
+        else:
+            send(chat_id, "No override active — already on defaults.")
 
     # ── Unknown ──────────────────────────────────────────────────────────────
     else:
