@@ -2,54 +2,48 @@
   "adjustments": [
     {
       "param": "rsi_min",
-      "current": 55,
+      "current": 58,
       "suggested": 60,
-      "reason": "RSI 60-72 bucket shows 26.0% WR vs 23.4% for 50-60 and 21.2% for 40-50. Narrowing to the strongest RSI zone improves signal quality."
+      "reason": "RSI 60-72 shows 14.5% WR vs 9.6% for 50-60 and 8.7% for 40-50. Tightening the lower bound removes weaker RSI signals and aligns with the strongest performing bucket."
     },
     {
       "param": "volume_min",
-      "current": 1.2,
-      "suggested": 2.0,
-      "reason": "Volume >2x shows 32.6% WR vs 26.2% for 1.1-2x and 22.6% for <1.1x. Higher volume threshold significantly improves win rate at cost of fewer signals."
+      "current": 1.0,
+      "suggested": 1.1,
+      "reason": "Volume >1.1x shows 16.3% WR vs 11.2% for <1.1x. Filtering out low-volume signals removes the weakest cohort and should improve mean PnL."
+    },
+    {
+      "param": "regime_filter",
+      "current": "none",
+      "suggested": "exclude_ranging",
+      "reason": "Ranging regime shows only 4% backtest WR and 45% live WR (with recent 5 consecutive losses all in ranging). Trending_up at 14% WR is far superior. Excluding ranging trades is the highest-impact filter."
     },
     {
       "param": "stop_atr_mult",
-      "current": 1.5,
+      "current": 1.8,
       "suggested": 2.0,
-      "reason": "With negative expectancy (-1.07%) driven by frequent losses at -2.98% avg, wider stops may reduce stop-outs on noise. Current risk/reward ratio (5.02/2.98=1.68) is insufficient at 23.9% WR \u2014 need fewer stopped-out trades."
+      "reason": "With a 12.9% WR and positive mean PnL of +0.472%, this is a trend-following system where winners must run. Slightly wider stops reduce premature stop-outs on volatile moves, preserving the positive EV tail."
     },
     {
       "param": "target_atr_mult",
-      "current": 2.5,
-      "suggested": 3.5,
-      "reason": "Increasing target multiple improves the payoff ratio needed to achieve positive expectancy. At ~25-30% WR with tighter filters, need avg_win/avg_loss > 3.0 to break even."
+      "current": 3.5,
+      "suggested": 4.0,
+      "reason": "Avg win of +8.36% vs avg loss of -4.28% gives ~1.95 reward/risk. With the wider stop, increasing target maintains the ratio and lets trend winners extend further, which is critical for a low-WR positive-EV system."
+    },
+    {
+      "param": "short_bias",
+      "current": "enabled",
+      "suggested": "reduce_or_disable",
+      "reason": "Short WR is 10.3% vs Long WR of 14.4%. Shorts underperform by ~40% relative to longs. Consider disabling shorts or requiring stricter criteria (e.g., higher volume threshold) for short entries."
     },
     {
       "param": "max_risk_per_trade",
       "current": 2.0,
-      "suggested": 1.0,
-      "reason": "Recent 5 trades are all losses, live WR is 45.5% but declining sharply. Reduce risk per trade to preserve capital during drawdown. Losses have higher avg criteria scores (92 vs 78) suggesting overconfidence on losing setups."
-    },
-    {
-      "param": "max_daily_loss",
-      "current": 2.0,
       "suggested": 1.5,
-      "reason": "Consecutive loss streak (5 in a row) indicates need for tighter daily loss limits to prevent tilt and capital destruction."
-    },
-    {
-      "param": "regime_filter",
-      "current": "all",
-      "suggested": "trending_up_only",
-      "reason": "Ranging regime shows only 15% backtest WR and 45% live WR (all live trades). Trending up shows 25% WR \u2014 best regime. Avoiding ranging markets eliminates worst-performing conditions."
-    },
-    {
-      "param": "short_trades",
-      "current": "enabled",
-      "suggested": "disabled_or_reduced",
-      "reason": "Short WR is 20.2% vs Long WR 25.3%. Shorts underperform by 5 percentage points. Disabling or heavily filtering shorts removes drag on performance."
+      "reason": "With 5 consecutive recent losses and a 12.9% backtest WR, drawdown management is critical. Reducing risk per trade preserves capital through inevitable losing streaks while the positive mean PnL compounds over time."
     }
   ],
-  "summary": "The strategy has deeply negative expectancy (-1.07% per trade) across 3685 backtest signals, with recent live performance deteriorating to 5 consecutive losses. The most impactful changes are dramatically raising the volume threshold to 2.0x (capturing the 32.6% WR bucket), tightening RSI to 60-72, filtering out ranging regimes and short trades, and widening the risk/reward ratio. These filters will drastically reduce signal count but should flip expectancy positive. Risk sizing should be halved immediately given the active drawdown.",
+  "summary": "This is a low win-rate, positive expected value trend system (+0.472% mean PnL). The most critical issue is that ranging markets destroy performance (4% WR backtest, 5 consecutive live losses in ranging). Filtering out ranging regimes, tightening entry criteria to higher RSI and volume thresholds, and reducing position size to survive long losing streaks should meaningfully improve realized performance.",
   "confidence": "medium",
-  "priority_change": "Increase volume_min from 1.2x to 2.0x \u2014 this single filter shows the largest performance differential (32.6% vs 22.6% WR) and directly addresses signal quality, potentially shifting expectancy from -1.07% toward breakeven or positive."
+  "priority_change": "Add a regime filter to exclude ranging markets \u2014 ranging shows 4% backtest WR vs 14% in trending_up, and all 5 recent consecutive losses occurred in ranging conditions. This single filter likely eliminates the majority of losing trades."
 }
