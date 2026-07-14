@@ -134,15 +134,24 @@ def run():
           sig2 is None, "signal fired unexpectedly" if sig2 else "None")
     print()
 
-    # ── Case 3: regime-short downtrend — expect a SHORT signal ────────────────
-    print("Case 3: downtrend + trending_down regime (RSI 45) — expect signal FIRES")
+    # ── Case 3: regime-short downtrend — DISABLED by default, fires if enabled ──
+    print("Case 3: downtrend + trending_down regime (RSI 45)")
     setup_macro(regime="trending_down", risk_score=-1)   # Mode A regime short
     ts = make_short_ticker("TESTS", rsi_14=45)
     bot.tickers = {"TESTS": ts}                            # no SPY -> Mode A path
 
-    sig3 = bot.scan_short("TESTS")
+    # Default: Mode-A regime shorts are disabled (backtested ~20% WR, -EV drag)
+    _saved = bot.ENABLE_REGIME_SHORTS
+    bot.ENABLE_REGIME_SHORTS = False
+    sig3_off = bot.scan_short("TESTS")
+    check("regime short returns None when ENABLE_REGIME_SHORTS=False",
+          sig3_off is None, "signal fired unexpectedly" if sig3_off else "None")
 
-    check("scan_short returns a signal (not None)", sig3 is not None,
+    # When explicitly re-enabled, the Mode-A math must still be correct
+    bot.ENABLE_REGIME_SHORTS = True
+    sig3 = bot.scan_short("TESTS")
+    bot.ENABLE_REGIME_SHORTS = _saved
+    check("regime short fires when flag re-enabled", sig3 is not None,
           f"got {type(sig3).__name__ if sig3 is None else 'dict'}")
 
     if sig3 is not None:
@@ -168,6 +177,27 @@ def run():
     sig4 = bot.scan_short("TESTS2")
     check("trending_up regime + no SPY breakdown so scan_short returns None",
           sig4 is None, "signal fired unexpectedly" if sig4 else "None")
+    print()
+
+    # ── Case 5: high-momentum RSI 74 — fires under widened band (was blocked) ──
+    print("Case 5: strong momentum (RSI 74) — expect signal FIRES (rsi_max now 75)")
+    setup_macro(regime="trending_up", risk_score=1)
+    t5 = make_ticker("TESTL", rsi_14=74)
+    bot.tickers = {"TESTL": t5}
+    sig5 = bot.scan_long("TESTL")
+    check("RSI 74 <= rsi_max (75) so scan_long fires", sig5 is not None,
+          f"got {type(sig5).__name__ if sig5 is None else 'dict'}")
+    print()
+
+    # ── Case 6: price barely above SMA50 (<1%) — blocked by trend-strength floor ─
+    print("Case 6: price only 0.5% above SMA50 — expect NO signal (need >=1%)")
+    setup_macro(regime="trending_up", risk_score=1)
+    t6 = make_ticker("TESTW", rsi_14=62)
+    t6.sma_50 = 99.5   # price 100 -> +0.5% above SMA50, under the 1% floor
+    bot.tickers = {"TESTW": t6}
+    sig6 = bot.scan_long("TESTW")
+    check("0.5% above SMA50 < 1% floor so scan_long returns None",
+          sig6 is None, "signal fired unexpectedly" if sig6 else "None")
     print()
 
     print("=" * 60)

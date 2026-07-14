@@ -250,18 +250,23 @@ WATCHLIST = property(get_watchlist) if False else CORE_WATCHLIST
 # ── Risk config ────────────────────────────────────────────────────────────────
 RISK = {
     "stop_loss_atr_mult":    1.8,
-    "take_profit_atr_mult":  3.0,
+    "take_profit_atr_mult":  3.5,   # ride winners: 3.5x ATR target (was 3.0)
     "max_position_pct":      0.05,
     "max_risk_per_trade_pct":0.02,
     "max_daily_loss_pct":    0.02,
     "max_open_positions":    6,
-    "rsi_min":               55,
-    "rsi_max":               72,
-    "volume_min_mult":       0.5,
-    "atr_pct_max":           0.04,
+    "rsi_min":               58,    # was 55 — 58-75 momentum band tests strongest
+    "rsi_max":               75,    # was 72
+    "volume_min_mult":       1.0,   # soft-penalty trigger (was 0.5); NOT a hard gate
+    "atr_pct_max":           0.05,  # was 0.04 — 0.05 improves both signal count and EV
     "dead_money_hours":      4,
     "max_hold_hours":        6,
 }
+
+# Regime (Mode-A) shorts backtest at ~20% WR and drag per-trade EV negative across
+# 1000+ signals. Disabled. Mode-B intraday-breakdown shorts (crash-day hedge) are
+# retained — they fire only on confirmed risk-off selloffs and aren't in that sample.
+ENABLE_REGIME_SHORTS = False
 
 # ── State files ────────────────────────────────────────────────────────────────
 STATE_DIR   = Path(os.environ.get("STATE_DIR", "/tmp/bot_state"))
@@ -1385,7 +1390,7 @@ def scan_long(symbol) -> dict | None:
     if is_opex_friday(): return None
     if not (t.price > t.sma_50 > t.sma_200): return None
     pct_above_50 = (t.price - t.sma_50) / t.sma_50
-    if pct_above_50 < 0.003: return None
+    if pct_above_50 < 0.01: return None
     trend_score = min(100, 90 + pct_above_50 * 200)
     if not (RISK["rsi_min"] <= t.rsi_14 <= RISK["rsi_max"]): return None
     mom_score = max(50, 100 - abs(t.rsi_14 - 62) * 2.5)
@@ -1582,6 +1587,7 @@ def scan_short(symbol) -> dict | None:
         }
 
     # ── MODE A — REGIME SHORT (original logic) ────────────────────────────────
+    if not ENABLE_REGIME_SHORTS:      return None  # backtested ~20% WR, -EV drag
     if m.market_regime == "unknown":  return None
     if macro.risk_score > -1:         return None
     if m.vix_regime == "low":         return None
@@ -1654,7 +1660,7 @@ def scan_diagnostic(symbol: str, direction: str) -> dict | None:
         if macro.risk_score <= -3: return None
         if not (t.price > t.sma_50 > t.sma_200): return None
         pct_above_50 = (t.price - t.sma_50) / t.sma_50
-        if pct_above_50 < 0.003: return None
+        if pct_above_50 < 0.01: return None
         rsi_ok = RISK["rsi_min"] <= t.rsi_14 <= RISK["rsi_max"]
         vol_ok = t.vol_ratio >= RISK["volume_min_mult"]
         atr_ok = t.atr_pct <= RISK["atr_pct_max"]
@@ -3903,6 +3909,11 @@ def run_backtest(symbols: list = None, lookback_days: int = 180,
     avg_win  = sum(t["pnl_pct"] for t in wins)   / len(wins)   if wins   else 0
     avg_loss = sum(t["pnl_pct"] for t in losses)  / len(losses) if losses else 0
     expectancy = (wr/100 * avg_win) + ((1-wr/100) * avg_loss)
+    # TRUE per-trade EV: mean realized pnl across ALL trades, incl. timeouts at
+    # their actual exit. `expectancy` above wrongly treats every timeout as if it
+    # lost avg_loss, badly understating a trend system where ~37% time out near
+    # breakeven. Optimize/read against mean_pnl_all, not `expectancy`.
+    mean_pnl_all = sum(t["pnl_pct"] for t in all_trades) / total if total else 0
     regime_stats = {}
     for t in all_trades:
         r = t["regime"]
@@ -3947,6 +3958,7 @@ def run_backtest(symbols: list = None, lookback_days: int = 180,
         "avg_win_pct":    round(avg_win, 2),
         "avg_loss_pct":   round(avg_loss, 2),
         "expectancy_pct": round(expectancy, 2),
+        "mean_pnl_pct":   round(mean_pnl_all, 3),  # TRUE per-trade EV (incl. timeouts)
         "long_signals":   len(long_trades),
         "long_win_rate":  round(long_wr, 1),
         "short_signals":  len(short_trades),
@@ -3961,7 +3973,8 @@ def run_backtest(symbols: list = None, lookback_days: int = 180,
     log("=" * 60)
     log(f"Win rate:    {wr:.1f}%  ({len(wins)}W / {len(losses)}L / {len(timeout)} timeout)")
     log(f"Avg win:     {avg_win:+.2f}%   Avg loss:  {avg_loss:+.2f}%")
-    log(f"Expectancy:  {expectancy:+.2f}% per trade")
+    log(f"Expectancy:  {expectancy:+.2f}% per trade (win/loss only — understates)")
+    log(f"Mean pnl:    {mean_pnl_all:+.3f}% per trade (TRUE EV, incl. timeouts)")
     log(f"Long:  {len(long_trades)} signals | {long_wr:.1f}% WR")
     log(f"Short: {len(short_trades)} signals | {short_wr:.1f}% WR")
     log("\nBy regime:")
@@ -3987,7 +4000,7 @@ def run_backtest(symbols: list = None, lookback_days: int = 180,
             f"📊 *Backtest Complete — {lookback_days} days*\n"
             f"Signals: {total}  |  Win rate: {wr:.1f}%\n"
             f"Avg win: {avg_win:+.2f}%  |  Avg loss: {avg_loss:+.2f}%\n"
-            f"Expectancy: {expectancy:+.2f}% per trade\n"
+            f"Mean pnl: {mean_pnl_all:+.3f}% per trade (true EV)\n"
             f"Long WR: {long_wr:.1f}%  |  Short WR: {short_wr:.1f}%\n"
             f"Best regime: {best_regime}"
         )
@@ -4036,7 +4049,9 @@ def run_auto_adjust(backtest: dict = None, notify: bool = True) -> dict:
             f"BACKTEST RESULTS ({bt.get('period_days',0)} days, {bt.get('total_signals',0)} signals):\n"
             f"Win rate: {bt.get('win_rate',0):.1f}%\n"
             f"Avg win: {bt.get('avg_win_pct',0):+.2f}% | Avg loss: {bt.get('avg_loss_pct',0):+.2f}%\n"
-            f"Expectancy: {bt.get('expectancy_pct',0):+.2f}% per trade\n"
+            f"Mean pnl (TRUE EV, incl timeouts): {bt.get('mean_pnl_pct',0):+.3f}% per trade "
+            f"— optimize against THIS, not the win/loss-only expectancy below\n"
+            f"Expectancy (win/loss only, understates trend systems): {bt.get('expectancy_pct',0):+.2f}%\n"
             f"Long WR: {bt.get('long_win_rate',0):.1f}% | Short WR: {bt.get('short_win_rate',0):.1f}%\n"
             f"RSI performance: {json.dumps(bt.get('rsi_win_rates',{}))}\n"
             f"Volume performance: {json.dumps(bt.get('volume_win_rates',{}))}\n"
