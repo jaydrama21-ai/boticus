@@ -6894,3 +6894,630 @@ Run complete: 2 new position(s) opened
 [11:05:24] INFO    SHA check auto_adjust_latest.json: 200
 [11:05:25] INFO    Commit auto_adjust_latest.json: 200
 [11:05:25] INFO    Committed auto_adjust_latest.json to repo
+[11:05:26] INFO    SHA check bot.log: 200
+[11:05:27] INFO    Commit bot.log: 200
+[11:05:27] INFO    Committed bot.log to repo
+[11:05:27] INFO    SHA check watchlist.json: 200
+[11:05:28] INFO    Commit watchlist.json: 200
+[11:05:28] INFO    Committed watchlist.json to repo
+[11:05:28] INFO    SHA check research_digest.json: 200
+[11:05:29] INFO    Commit research_digest.json: 200
+[11:05:29] INFO    Committed research_digest.json to repo
+[11:05:30] INFO    SHA check fed_insights.json: 200
+[11:05:31] INFO    Commit fed_insights.json: 200
+[11:05:31] INFO    Committed fed_insights.json to repo
+[11:05:31] INFO    SHA check tg_offset.json: 200
+[11:05:32] INFO    Commit tg_offset.json: 200
+[11:05:32] INFO    Committed tg_offset.json to repo
+[11:05:32] INFO    Skip paused.json — not found at bot_state/paused.json
+[11:05:32] INFO    SHA check near_miss.json: 200
+[11:05:33] INFO    Commit near_miss.json: 200
+[11:05:33] INFO    Committed near_miss.json to repo
+[11:05:33] INFO    SHA check last_run.json: 200
+[11:05:35] INFO    Commit last_run.json: 200
+[11:05:35] INFO    Committed last_run.json to repo
+[11:05:35] INFO  State commit complete: 11/12 files
+[11:36:50] INFO  ============================================================
+[11:36:50] INFO  TRADING BOT RUN | 2026-07-14 11:36 ET | open | mode=backtest
+[11:36:50] INFO  Paper mode: True | Telegram: yes
+[11:36:50] INFO  ============================================================
+[11:36:50] INFO  Fetching macro data...
+[11:36:52] INFO    Futures: ES=+0.43% NQ=+1.36% Gold=+2.36% -> MILDLY-RISK-ON
+[11:36:52] INFO    Fed:3.63% CPI:3.7% VIX:16.4(normal) Regime:ranging
+[11:36:52] WARN    HIGH-IMPACT EVENT TODAY: ['CPI']
+[11:36:52] INFO    Scanning StockTwits sentiment...
+[11:36:53] INFO    Fear & Greed: 44 (fear) +0.0 from yesterday
+[11:36:53] INFO    Market breadth: 50% above SMA50 — neutral
+[11:36:53] INFO  Fetching price data for 62 tickers...
+[11:36:53] INFO    MACRO TRIGGER on SPY: rate hike, cpi, semiconductor
+[11:36:53] INFO    MACRO ALERT on SPY: rate hike, cpi, semiconductor
+[11:36:53] INFO    SPY    $ 751.81 (+0.4%)  RSI: 56.4  ATR:1.17%  Vol:0.7x  up NEG
+[11:36:53] INFO    MACRO TRIGGER on QQQ: rate hike, cpi, cpi
+[11:36:53] INFO    MACRO ALERT on QQQ: rate hike, cpi, cpi
+[11:36:53] INFO    QQQ    $ 721.18 (+1.3%)  RSI: 51.3  ATR:2.08%  Vol:1.1x  up NEG
+[11:36:54] INFO    IWM    $ 294.35 (+0.3%)  RSI: 51.5  ATR:1.66%  Vol:1.1x  up
+[11:36:55] INFO    MACRO TRIGGER on DIA: rate hike, cpi, interest rate
+[11:36:55] INFO    MACRO ALERT on DIA: rate hike, cpi, interest rate
+[11:36:55] INFO    DIA    $ 523.85 (-0.1%)  RSI: 58.6  ATR:1.07%  Vol:1.3x  up NEG
+[11:36:55] INFO    MDY    $ 688.65 (+0.4%)  RSI: 51.1  ATR:1.40%  Vol:0.9x  up
+[11:36:55] INFO    VXX    $  21.45 (-1.5%)  RSI: 38.5  ATR:4.33%  Vol:0.8x  dn
+[11:36:56] INFO    EEM    $  65.60 (+1.7%)  RSI: 46.1  ATR:2.60%  Vol:1.0x  dn
+[11:36:56] INFO    EFA    $ 104.40 (+1.1%)  RSI: 54.6  ATR:1.29%  Vol:1.0x  up
+[11:36:56] INFO    MACRO TRIGGER on FXI: china, china, china
+[11:36:56] INFO    MACRO ALERT on FXI: china, china, china
+[11:36:56] INFO    FXI    $  33.79 (+1.0%)  RSI: 54.1  ATR:1.59%  Vol:1.1x  dn NEG
+[11:36:57] INFO    EWJ    $  94.38 (+1.8%)  RSI: 54.6  ATR:1.80%  Vol:1.0x  up
+[11:36:57] INFO    IEUR   $  75.13 (+0.8%)  RSI: 53.4  ATR:1.20%  Vol:0.4x  up
+[11:36:57] INFO    MACRO TRIGGER on AAPL: trump
+[11:36:57] INFO    MACRO ALERT on AAPL: trump
+[11:36:57] INFO    AAPL   $ 314.24 (-1.0%)  RSI: 60.8  ATR:2.51%  Vol:0.6x  up NEG
+[11:36:58] INFO    MACRO TRIGGER on MSFT: strait of hormuz
+[11:36:58] INFO    MACRO ALERT on MSFT: strait of hormuz
+[11:36:58] INFO    MSFT   $ 385.24 (-1.5%)  RSI: 47.7  ATR:3.07%  Vol:0.7x  dn NEG
+[11:36:58] INFO    MACRO TRIGGER on NVDA: china, trump, china
+[11:36:58] INFO    MACRO ALERT on NVDA: china, trump, china
+[11:36:58] INFO    NVDA   $ 208.88 (+2.6%)  RSI: 54.3  ATR:3.40%  Vol:0.9x  dn NEG
+[11:36:59] INFO    MACRO TRIGGER on GOOGL: strait of hormuz
+[11:36:59] INFO    MACRO ALERT on GOOGL: strait of hormuz
+[11:36:59] INFO    GOOGL  $ 357.56 (+1.4%)  RSI: 47.9  ATR:2.85%  Vol:0.5x  dn NEG
+[11:36:59] INFO    MACRO TRIGGER on META: iran, strait of hormuz
+[11:36:59] INFO    MACRO ALERT on META: iran, strait of hormuz
+[11:36:59] INFO    META   $ 656.97 (+0.0%)  RSI: 62.8  ATR:3.84%  Vol:0.8x  -> NEG
+[11:36:59] INFO    MACRO TRIGGER on AMZN: strait of hormuz
+[11:36:59] INFO    MACRO ALERT on AMZN: strait of hormuz
+[11:36:59] INFO    AMZN   $ 245.41 (-0.8%)  RSI: 50.8  ATR:2.96%  Vol:0.5x  dn NEG
+[11:37:00] INFO    MACRO TRIGGER on TSLA: trump, trump
+[11:37:00] INFO    MACRO ALERT on TSLA: trump, trump
+[11:37:00] INFO    TSLA   $ 398.24 (+0.9%)  RSI: 48.4  ATR:4.47%  Vol:0.7x  dn NEG
+[11:37:00] INFO    MACRO TRIGGER on AMD: semiconductor
+[11:37:00] INFO    MACRO ALERT on AMD: semiconductor
+[11:37:00] INFO    AMD    $ 565.53 (+5.8%)  RSI: 57.7  ATR:6.39%  Vol:1.1x  up NEG
+[11:37:00] INFO    PLTR   $ 131.50 (+1.1%)  RSI: 52.9  ATR:5.38%  Vol:1.7x  dn
+[11:37:00] INFO    MACRO TRIGGER on COIN: trump, china
+[11:37:00] INFO    MACRO ALERT on COIN: trump, china
+[11:37:00] INFO    COIN   $ 157.72 (+0.2%)  RSI: 45.9  ATR:6.25%  Vol:0.9x  dn NEG
+[11:37:01] INFO    MACRO TRIGGER on JPM: cpi, semiconductor
+[11:37:01] INFO    MACRO ALERT on JPM: cpi, semiconductor
+[11:37:01] INFO    JPM    $ 340.96 (+1.9%)  RSI: 64.3  ATR:2.26%  Vol:1.7x  up NEG
+[11:37:01] INFO    MACRO TRIGGER on BAC: iran
+[11:37:01] INFO    MACRO ALERT on BAC: iran
+[11:37:01] INFO    BAC    $  60.74 (+2.1%)  RSI: 70.3  ATR:2.06%  Vol:1.8x  up NEG
+[11:37:02] INFO    MACRO TRIGGER on GS: iran
+[11:37:02] INFO    MACRO ALERT on GS: iran
+[11:37:02] INFO    GS     $1119.96 (+7.1%)  RSI: 65.1  ATR:3.05%  Vol:2.6x  up NEG
+[11:37:02] INFO    MS     $ 228.36 (+3.3%)  RSI: 64.2  ATR:2.64%  Vol:1.5x  up
+[11:37:02] INFO    C      $ 134.58 (-4.4%)  RSI: 43.1  ATR:2.90%  Vol:2.1x  up NEG
+[11:37:03] INFO    XOM    $ 144.63 (+0.1%)  RSI: 55.1  ATR:2.37%  Vol:0.8x  dn
+[11:37:04] INFO    MACRO TRIGGER on CVX: trump
+[11:37:04] INFO    MACRO ALERT on CVX: trump
+[11:37:04] INFO    CVX    $ 181.70 (-0.3%)  RSI: 56.8  ATR:2.17%  Vol:0.7x  dn NEG
+[11:37:04] INFO    UNH    $ 427.48 (-0.4%)  RSI: 60.4  ATR:2.31%  Vol:0.9x  up
+[11:37:05] INFO    LLY    $1152.96 (-2.4%)  RSI: 49.7  ATR:3.32%  Vol:1.0x  up
+[11:37:05] INFO    ABBV   $ 244.71 (-1.3%)  RSI: 56.0  ATR:2.61%  Vol:0.3x  up
+[11:37:06] INFO    XLK    $ 184.05 (+1.5%)  RSI: 50.9  ATR:2.96%  Vol:0.9x  up
+[11:37:06] INFO    XLF    $  56.23 (+0.3%)  RSI: 69.1  ATR:1.39%  Vol:1.8x  up
+[11:37:06] INFO    XLE    $  56.61 (-0.2%)  RSI: 57.6  ATR:2.05%  Vol:1.6x  up
+[11:37:06] INFO    XLV    $ 158.21 (-2.0%)  RSI: 53.3  ATR:1.68%  Vol:1.7x  up
+[11:37:07] INFO    XBI    $ 154.53 (-0.5%)  RSI: 57.1  ATR:2.75%  Vol:1.2x  up
+[11:37:07] INFO    XRT    $  86.90 (-0.7%)  RSI: 52.2  ATR:1.93%  Vol:0.9x  up
+[11:37:07] INFO    XLU    $  45.85 (+0.3%)  RSI: 57.2  ATR:1.43%  Vol:1.2x  up
+[11:37:08] INFO    XLI    $ 180.64 (+0.1%)  RSI: 52.1  ATR:1.70%  Vol:1.3x  up
+[11:37:08] INFO    XLP    $  83.78 (-1.0%)  RSI: 49.5  ATR:1.50%  Vol:0.9x  up
+[11:37:08] INFO    TLT    $  84.28 (+0.4%)  RSI: 40.0  ATR:0.69%  Vol:1.0x  dn
+[11:37:09] INFO    GLD    $ 374.05 (+1.9%)  RSI: 43.0  ATR:2.13%  Vol:1.6x  dn
+[11:37:09] INFO    SLV    $  53.27 (+2.1%)  RSI: 39.1  ATR:4.26%  Vol:1.2x  dn
+[11:37:09] INFO    MACRO TRIGGER on USO: trump, iran, strait of hormuz
+[11:37:09] INFO    MACRO ALERT on USO: trump, iran, strait of hormuz
+[11:37:09] INFO    USO    $ 119.90 (+1.8%)  RSI: 54.7  ATR:4.10%  Vol:3.0x  dn NEG
+[11:37:09] INFO    UUP    $  28.34 (-0.5%)  RSI: 55.7  ATR:0.41%  Vol:0.9x  up
+[11:37:10] INFO    IJR    $ 145.18 (+0.1%)  RSI: 56.0  ATR:1.41%  Vol:0.6x  up
+[11:37:10] INFO    NTLA   $  13.14 (+0.9%)  RSI: 37.4  ATR:9.31%  Vol:0.6x  dn
+[11:37:10] INFO    ARM    $ 284.65 (-4.8%)  RSI: 40.5  ATR:11.03%  Vol:1.3x  dn NEG
+[11:37:11] INFO    LDOS   $ 106.78 (+0.2%)  RSI: 38.5  ATR:3.58%  Vol:0.3x  dn
+[11:37:11] INFO    ALGM   $  52.71 (+3.6%)  RSI: 48.2  ATR:9.61%  Vol:0.4x  up
+[11:37:12] INFO    BA     $ 219.38 (+1.8%)  RSI: 47.7  ATR:2.93%  Vol:0.6x  dn
+[11:37:12] INFO    MACRO TRIGGER on RIVN: trump
+[11:37:12] INFO    MACRO ALERT on RIVN: trump
+[11:37:12] INFO    RIVN   $  17.36 (+0.3%)  RSI: 53.2  ATR:7.19%  Vol:0.5x  -> NEG
+[11:37:13] INFO    RBLX   $  54.10 (-1.7%)  RSI: 56.0  ATR:5.72%  Vol:0.4x  ->
+[11:37:13] INFO    SNAP   $   4.61 (-1.0%)  RSI: 40.7  ATR:5.16%  Vol:0.5x  dn
+[11:37:13] INFO    RARE   $  32.15 (-3.2%)  RSI: 59.0  ATR:5.07%  Vol:0.2x  ->
+[11:37:13] INFO    CRWD   $ 206.93 (+10.1%)  RSI: 68.0  ATR:4.94%  Vol:1.4x  up
+[11:37:14] INFO    PANW   $ 353.37 (+7.0%)  RSI: 66.0  ATR:4.71%  Vol:0.9x  up
+[11:37:14] INFO    RKLB   $  80.62 (+5.1%)  RSI: 38.7  ATR:10.34%  Vol:0.9x  dn
+[11:37:14] INFO    SMCI   $  27.75 (+0.3%)  RSI: 42.2  ATR:8.33%  Vol:0.5x  dn
+[11:37:15] INFO    MACRO TRIGGER on HOOD: trump, china
+[11:37:15] INFO    MACRO ALERT on HOOD: trump, china
+[11:37:15] INFO    HOOD   $ 109.88 (+0.0%)  RSI: 58.9  ATR:5.94%  Vol:0.7x  -> NEG
+[11:37:15] INFO    MRNA   $  66.52 (-0.7%)  RSI: 52.5  ATR:7.55%  Vol:0.4x  up
+[11:37:15] INFO  Running backtest: 62 symbols, 180 days lookback
+[11:37:15] INFO    Backtesting SPY (390 days)...
+[11:37:15] INFO      SPY: 78 signals | W:8 L:26 | WR:10%
+[11:37:16] INFO    Backtesting QQQ (390 days)...
+[11:37:16] INFO      QQQ: 72 signals | W:22 L:34 | WR:31%
+[11:37:16] INFO    Backtesting IWM (390 days)...
+[11:37:16] INFO      IWM: 84 signals | W:1 L:20 | WR:1%
+[11:37:16] INFO    Backtesting DIA (390 days)...
+[11:37:16] INFO      DIA: 93 signals | W:0 L:17 | WR:0%
+[11:37:16] INFO    Backtesting MDY (390 days)...
+[11:37:16] INFO      MDY: 87 signals | W:0 L:16 | WR:0%
+[11:37:16] INFO    Backtesting VXX (390 days)...
+[11:37:17] INFO      VXX: 75 signals | W:1 L:26 | WR:1%
+[11:37:17] INFO    Backtesting EEM (390 days)...
+[11:37:17] INFO      EEM: 99 signals | W:18 L:37 | WR:18%
+[11:37:17] INFO    Backtesting EFA (390 days)...
+[11:37:17] INFO      EFA: 80 signals | W:11 L:30 | WR:14%
+[11:37:17] INFO    Backtesting FXI (390 days)...
+[11:37:17] INFO      FXI: 62 signals | W:5 L:34 | WR:8%
+[11:37:17] INFO    Backtesting EWJ (390 days)...
+[11:37:17] INFO      EWJ: 81 signals | W:12 L:28 | WR:15%
+[11:37:17] INFO    Backtesting IEUR (390 days)...
+[11:37:18] INFO      IEUR: 80 signals | W:7 L:28 | WR:9%
+[11:37:18] INFO    Backtesting AAPL (390 days)...
+[11:37:18] INFO      AAPL: 81 signals | W:8 L:23 | WR:10%
+[11:37:18] INFO    Backtesting MSFT (390 days)...
+[11:37:18] INFO      MSFT: 81 signals | W:13 L:21 | WR:16%
+[11:37:18] INFO    Backtesting NVDA (390 days)...
+[11:37:18] INFO      NVDA: 41 signals | W:6 L:17 | WR:15%
+[11:37:18] INFO    Backtesting GOOGL (390 days)...
+[11:37:18] INFO      GOOGL: 101 signals | W:17 L:29 | WR:17%
+[11:37:18] INFO    Backtesting META (390 days)...
+[11:37:18] INFO      META: 92 signals | W:11 L:32 | WR:12%
+[11:37:18] INFO    Backtesting AMZN (390 days)...
+[11:37:19] INFO      AMZN: 70 signals | W:2 L:43 | WR:3%
+[11:37:19] INFO    Backtesting TSLA (390 days)...
+[11:37:19] INFO      TSLA: 41 signals | W:0 L:21 | WR:0%
+[11:37:19] INFO    Backtesting AMD (390 days)...
+[11:37:19] INFO      AMD: 57 signals | W:13 L:32 | WR:23%
+[11:37:19] INFO    Backtesting PLTR (390 days)...
+[11:37:19] INFO      PLTR: 44 signals | W:3 L:20 | WR:7%
+[11:37:19] INFO    Backtesting COIN (390 days)...
+[11:37:19] INFO      COIN: 9 signals | W:4 L:0 | WR:44%
+[11:37:19] INFO    Backtesting JPM (390 days)...
+[11:37:19] INFO      JPM: 61 signals | W:1 L:32 | WR:2%
+[11:37:20] INFO    Backtesting BAC (390 days)...
+[11:37:20] INFO      BAC: 73 signals | W:1 L:23 | WR:1%
+[11:37:20] INFO    Backtesting GS (390 days)...
+[11:37:20] INFO      GS: 85 signals | W:10 L:12 | WR:12%
+[11:37:20] INFO    Backtesting MS (390 days)...
+[11:37:20] INFO      MS: 103 signals | W:7 L:18 | WR:7%
+[11:37:20] INFO    Backtesting C (390 days)...
+[11:37:20] INFO      C: 91 signals | W:15 L:27 | WR:16%
+[11:37:20] INFO    Backtesting XOM (390 days)...
+[11:37:20] INFO      XOM: 84 signals | W:22 L:28 | WR:26%
+[11:37:21] INFO    Backtesting CVX (390 days)...
+[11:37:21] INFO      CVX: 71 signals | W:20 L:14 | WR:28%
+[11:37:21] WARN    MRO: insufficient history
+[11:37:21] INFO    Backtesting UNH (390 days)...
+[11:37:21] INFO      UNH: 117 signals | W:1 L:43 | WR:1%
+[11:37:21] INFO    Backtesting LLY (390 days)...
+[11:37:22] INFO      LLY: 79 signals | W:7 L:22 | WR:9%
+[11:37:22] INFO    Backtesting ABBV (390 days)...
+[11:37:22] INFO      ABBV: 30 signals | W:0 L:12 | WR:0%
+[11:37:22] INFO    Backtesting XLK (390 days)...
+[11:37:22] INFO      XLK: 67 signals | W:22 L:39 | WR:33%
+[11:37:22] INFO    Backtesting XLF (390 days)...
+[11:37:22] INFO      XLF: 46 signals | W:0 L:19 | WR:0%
+[11:37:22] INFO    Backtesting XLE (390 days)...
+[11:37:22] INFO      XLE: 86 signals | W:21 L:28 | WR:24%
+[11:37:22] INFO    Backtesting XLV (390 days)...
+[11:37:23] INFO      XLV: 53 signals | W:11 L:21 | WR:21%
+[11:37:23] INFO    Backtesting XBI (390 days)...
+[11:37:23] INFO      XBI: 82 signals | W:9 L:20 | WR:11%
+[11:37:23] INFO    Backtesting XRT (390 days)...
+[11:37:23] INFO      XRT: 40 signals | W:0 L:14 | WR:0%
+[11:37:23] INFO    Backtesting XLU (390 days)...
+[11:37:23] INFO      XLU: 36 signals | W:3 L:13 | WR:8%
+[11:37:23] INFO    Backtesting XLI (390 days)...
+[11:37:23] INFO      XLI: 82 signals | W:11 L:11 | WR:13%
+[11:37:23] INFO    Backtesting XLP (390 days)...
+[11:37:24] INFO      XLP: 68 signals | W:5 L:41 | WR:7%
+[11:37:24] INFO    Backtesting TLT (390 days)...
+[11:37:24] INFO      TLT: 37 signals | W:3 L:20 | WR:8%
+[11:37:24] INFO    Backtesting GLD (390 days)...
+[11:37:24] INFO      GLD: 58 signals | W:21 L:10 | WR:36%
+[11:37:24] INFO    Backtesting SLV (390 days)...
+[11:37:24] INFO      SLV: 64 signals | W:32 L:28 | WR:50%
+[11:37:24] INFO    Backtesting USO (390 days)...
+[11:37:24] INFO      USO: 62 signals | W:8 L:21 | WR:13%
+[11:37:24] INFO    Backtesting UUP (390 days)...
+[11:37:24] INFO      UUP: 72 signals | W:9 L:19 | WR:12%
+[11:37:25] INFO    Backtesting IJR (390 days)...
+[11:37:25] INFO      IJR: 96 signals | W:0 L:12 | WR:0%
+[11:37:25] INFO    Backtesting NTLA (390 days)...
+[11:37:25] INFO      NTLA: 0 signals
+[11:37:25] INFO    Backtesting ARM (390 days)...
+[11:37:25] INFO      ARM: 26 signals | W:0 L:18 | WR:0%
+[11:37:25] INFO    Backtesting LDOS (390 days)...
+[11:37:25] INFO      LDOS: 82 signals | W:17 L:8 | WR:21%
+[11:37:25] INFO    Backtesting ALGM (390 days)...
+[11:37:25] INFO      ALGM: 52 signals | W:12 L:22 | WR:23%
+[11:37:25] INFO    Backtesting BA (390 days)...
+[11:37:26] INFO      BA: 35 signals | W:1 L:16 | WR:3%
+[11:37:26] INFO    Backtesting RIVN (390 days)...
+[11:37:26] INFO      RIVN: 9 signals | W:1 L:7 | WR:11%
+[11:37:26] INFO    Backtesting RBLX (390 days)...
+[11:37:26] INFO      RBLX: 12 signals | W:2 L:7 | WR:17%
+[11:37:26] INFO    Backtesting SNAP (390 days)...
+[11:37:26] INFO      SNAP: 39 signals | W:11 L:12 | WR:28%
+[11:37:26] INFO    Backtesting RARE (390 days)...
+[11:37:26] INFO      RARE: 20 signals | W:1 L:11 | WR:5%
+[11:37:26] INFO    Backtesting CRWD (390 days)...
+[11:37:26] INFO      CRWD: 61 signals | W:4 L:24 | WR:7%
+[11:37:26] INFO    Backtesting PANW (390 days)...
+[11:37:26] INFO      PANW: 90 signals | W:24 L:33 | WR:27%
+[11:37:27] INFO    Backtesting RKLB (390 days)...
+[11:37:27] INFO      RKLB: 0 signals
+[11:37:27] INFO    Backtesting SMCI (390 days)...
+[11:37:27] INFO      SMCI: 11 signals | W:0 L:6 | WR:0%
+[11:37:27] INFO    Backtesting HOOD (390 days)...
+[11:37:27] INFO      HOOD: 2 signals | W:0 L:2 | WR:0%
+[11:37:27] INFO    Backtesting MRNA (390 days)...
+[11:37:27] INFO      MRNA: 4 signals | W:2 L:0 | WR:50%
+[11:37:27] INFO  ============================================================
+[11:37:27] INFO  BACKTEST RESULTS — 180 days | 3694 signals
+[11:37:27] INFO  ============================================================
+[11:37:27] INFO  Win rate:    12.9%  (476W / 1247L / 1971 timeout)
+[11:37:27] INFO  Avg win:     +8.36%   Avg loss:  -4.28%
+[11:37:27] INFO  Expectancy:  -2.66% per trade (win/loss only — understates)
+[11:37:27] INFO  Mean pnl:    +0.472% per trade (TRUE EV, incl. timeouts)
+[11:37:27] INFO  Long:  2312 signals | 14.4% WR
+[11:37:27] INFO  Short: 1382 signals | 10.3% WR
+[11:37:27] INFO  
+By regime:
+[11:37:27] INFO    trending_up     14.0% WR (2758 trades)
+[11:37:27] INFO    trending_down   10.5% WR (829 trades)
+[11:37:27] INFO    ranging         3.7% WR (107 trades)
+[11:37:27] INFO  
+RSI buckets:
+[11:37:27] INFO    RSI 40-50: 8.7% WR
+[11:37:27] INFO    RSI 50-60: 9.6% WR
+[11:37:27] INFO    RSI 60-72: 14.5% WR
+[11:37:27] INFO  
+Volume buckets:
+[11:37:27] INFO    Vol <1.1x: 11.2% WR
+[11:37:27] INFO    Vol 1.1-2x: 16.3% WR
+[11:37:27] INFO    Vol >2x: 18.4% WR
+[11:37:27] INFO  ============================================================
+[11:37:27] INFO  Backtest saved to bot_state/backtest_latest.json
+[11:37:28] INFO  Telegram sent (201 chars) attempt 1
+[11:37:28] INFO  Running auto-adjust analysis...
+[11:37:45] INFO  ============================================================
+[11:37:45] INFO  AUTO-ADJUST RECOMMENDATIONS (confidence: medium)
+[11:37:45] INFO  ============================================================
+[11:37:45] INFO  Summary: This is a low win-rate, positive expected value trend system (+0.472% mean PnL). The most critical issue is that ranging markets destroy performance (4% WR backtest, 5 consecutive live losses in ranging). Filtering out ranging regimes, tightening entry criteria to higher RSI and volume thresholds, and reducing position size to survive long losing streaks should meaningfully improve realized performance.
+[11:37:45] INFO  Priority change: Add a regime filter to exclude ranging markets — ranging shows 4% backtest WR vs 14% in trending_up, and all 5 recent consecutive losses occurred in ranging conditions. This single filter likely eliminates the majority of losing trades.
+[11:37:45] INFO  
+Suggested adjustments:
+[11:37:45] INFO    rsi_min                        58 -> 60
+[11:37:45] INFO      Reason: RSI 60-72 shows 14.5% WR vs 9.6% for 50-60 and 8.7% for 40-50. Tightening the lower bound removes weaker RSI signals and aligns with the strongest performing bucket.
+[11:37:45] INFO    volume_min                     1.0 -> 1.1
+[11:37:45] INFO      Reason: Volume >1.1x shows 16.3% WR vs 11.2% for <1.1x. Filtering out low-volume signals removes the weakest cohort and should improve mean PnL.
+[11:37:45] INFO    regime_filter                  none -> exclude_ranging
+[11:37:45] INFO      Reason: Ranging regime shows only 4% backtest WR and 45% live WR (with recent 5 consecutive losses all in ranging). Trending_up at 14% WR is far superior. Excluding ranging trades is the highest-impact filter.
+[11:37:45] INFO    stop_atr_mult                  1.8 -> 2.0
+[11:37:45] INFO      Reason: With a 12.9% WR and positive mean PnL of +0.472%, this is a trend-following system where winners must run. Slightly wider stops reduce premature stop-outs on volatile moves, preserving the positive EV tail.
+[11:37:45] INFO    target_atr_mult                3.5 -> 4.0
+[11:37:45] INFO      Reason: Avg win of +8.36% vs avg loss of -4.28% gives ~1.95 reward/risk. With the wider stop, increasing target maintains the ratio and lets trend winners extend further, which is critical for a low-WR positive-EV system.
+[11:37:45] INFO    short_bias                     enabled -> reduce_or_disable
+[11:37:45] INFO      Reason: Short WR is 10.3% vs Long WR of 14.4%. Shorts underperform by ~40% relative to longs. Consider disabling shorts or requiring stricter criteria (e.g., higher volume threshold) for short entries.
+[11:37:45] INFO    max_risk_per_trade             2.0 -> 1.5
+[11:37:45] INFO      Reason: With 5 consecutive recent losses and a 12.9% backtest WR, drawdown management is critical. Reducing risk per trade preserves capital through inevitable losing streaks while the positive mean PnL compounds over time.
+[11:37:45] INFO  ============================================================
+[11:37:45] INFO  NOTE: These are suggestions only. Edit RISK dict in bot.py to apply.
+[11:37:46] INFO  Telegram sent (891 chars) attempt 1
+[11:37:46] INFO  Running RECENT REGIME backtest: last 60 days only...
+[11:37:46] INFO  Running backtest: 62 symbols, 60 days lookback
+[11:37:46] INFO    Backtesting SPY (270 days)...
+[11:37:46] INFO      SPY: 42 signals | W:8 L:8 | WR:19%
+[11:37:46] INFO    Backtesting QQQ (270 days)...
+[11:37:46] INFO      QQQ: 47 signals | W:18 L:18 | WR:38%
+[11:37:46] INFO    Backtesting IWM (270 days)...
+[11:37:46] INFO      IWM: 46 signals | W:0 L:12 | WR:0%
+[11:37:46] INFO    Backtesting DIA (270 days)...
+[11:37:46] INFO      DIA: 47 signals | W:0 L:4 | WR:0%
+[11:37:46] INFO    Backtesting MDY (270 days)...
+[11:37:46] INFO      MDY: 36 signals | W:0 L:7 | WR:0%
+[11:37:46] INFO    Backtesting VXX (270 days)...
+[11:37:46] INFO      VXX: 37 signals | W:1 L:7 | WR:3%
+[11:37:47] INFO    Backtesting EEM (270 days)...
+[11:37:47] INFO      EEM: 32 signals | W:3 L:16 | WR:9%
+[11:37:47] INFO    Backtesting EFA (270 days)...
+[11:37:47] INFO      EFA: 12 signals | W:0 L:7 | WR:0%
+[11:37:47] INFO    Backtesting FXI (270 days)...
+[11:37:47] INFO      FXI: 38 signals | W:5 L:17 | WR:13%
+[11:37:47] INFO    Backtesting EWJ (270 days)...
+[11:37:47] INFO      EWJ: 24 signals | W:0 L:11 | WR:0%
+[11:37:47] INFO    Backtesting IEUR (270 days)...
+[11:37:47] INFO      IEUR: 9 signals | W:0 L:5 | WR:0%
+[11:37:47] INFO    Backtesting AAPL (270 days)...
+[11:37:47] INFO      AAPL: 42 signals | W:8 L:13 | WR:19%
+[11:37:47] INFO    Backtesting MSFT (270 days)...
+[11:37:47] INFO      MSFT: 21 signals | W:3 L:3 | WR:14%
+[11:37:47] INFO    Backtesting NVDA (270 days)...
+[11:37:47] INFO      NVDA: 23 signals | W:3 L:7 | WR:13%
+[11:37:48] INFO    Backtesting GOOGL (270 days)...
+[11:37:48] INFO      GOOGL: 30 signals | W:9 L:11 | WR:30%
+[11:37:48] INFO    Backtesting META (270 days)...
+[11:37:48] INFO      META: 39 signals | W:0 L:14 | WR:0%
+[11:37:48] INFO    Backtesting AMZN (270 days)...
+[11:37:48] INFO      AMZN: 28 signals | W:0 L:13 | WR:0%
+[11:37:48] INFO    Backtesting TSLA (270 days)...
+[11:37:48] INFO      TSLA: 19 signals | W:0 L:10 | WR:0%
+[11:37:48] INFO    Backtesting AMD (270 days)...
+[11:37:48] INFO      AMD: 20 signals | W:3 L:14 | WR:15%
+[11:37:48] INFO    Backtesting PLTR (270 days)...
+[11:37:48] INFO      PLTR: 23 signals | W:3 L:10 | WR:13%
+[11:37:48] INFO    Backtesting COIN (270 days)...
+[11:37:48] INFO      COIN: 0 signals
+[11:37:48] INFO    Backtesting JPM (270 days)...
+[11:37:48] INFO      JPM: 29 signals | W:1 L:7 | WR:3%
+[11:37:48] INFO    Backtesting BAC (270 days)...
+[11:37:48] INFO      BAC: 31 signals | W:1 L:8 | WR:3%
+[11:37:49] INFO    Backtesting GS (270 days)...
+[11:37:49] INFO      GS: 37 signals | W:6 L:7 | WR:16%
+[11:37:49] INFO    Backtesting MS (270 days)...
+[11:37:49] INFO      MS: 51 signals | W:7 L:9 | WR:14%
+[11:37:49] INFO    Backtesting C (270 days)...
+[11:37:49] INFO      C: 41 signals | W:5 L:8 | WR:12%
+[11:37:49] INFO    Backtesting XOM (270 days)...
+[11:37:49] INFO      XOM: 3 signals | W:0 L:3 | WR:0%
+[11:37:49] INFO    Backtesting CVX (270 days)...
+[11:37:49] INFO      CVX: 2 signals | W:0 L:2 | WR:0%
+[11:37:50] WARN    MRO: insufficient history
+[11:37:50] INFO    Backtesting UNH (270 days)...
+[11:37:50] INFO      UNH: 52 signals | W:0 L:15 | WR:0%
+[11:37:50] INFO    Backtesting LLY (270 days)...
+[11:37:50] INFO      LLY: 39 signals | W:4 L:2 | WR:10%
+[11:37:50] INFO    Backtesting ABBV (270 days)...
+[11:37:50] INFO      ABBV: 16 signals | W:0 L:4 | WR:0%
+[11:37:50] INFO    Backtesting XLK (270 days)...
+[11:37:50] INFO      XLK: 43 signals | W:17 L:25 | WR:40%
+[11:37:50] INFO    Backtesting XLF (270 days)...
+[11:37:50] INFO      XLF: 6 signals | W:0 L:1 | WR:0%
+[11:37:50] INFO    Backtesting XLE (270 days)...
+[11:37:50] INFO      XLE: 7 signals | W:0 L:7 | WR:0%
+[11:37:51] INFO    Backtesting XLV (270 days)...
+[11:37:51] INFO      XLV: 7 signals | W:0 L:4 | WR:0%
+[11:37:51] INFO    Backtesting XBI (270 days)...
+[11:37:51] INFO      XBI: 21 signals | W:4 L:9 | WR:19%
+[11:37:51] INFO    Backtesting XRT (270 days)...
+[11:37:51] INFO      XRT: 10 signals | W:0 L:9 | WR:0%
+[11:37:51] INFO    Backtesting XLU (270 days)...
+[11:37:51] INFO      XLU: 4 signals | W:0 L:2 | WR:0%
+[11:37:51] INFO    Backtesting XLI (270 days)...
+[11:37:51] INFO      XLI: 19 signals | W:0 L:2 | WR:0%
+[11:37:51] INFO    Backtesting XLP (270 days)...
+[11:37:51] INFO      XLP: 12 signals | W:0 L:9 | WR:0%
+[11:37:52] INFO    Backtesting TLT (270 days)...
+[11:37:52] INFO      TLT: 19 signals | W:3 L:10 | WR:16%
+[11:37:52] INFO    Backtesting GLD (270 days)...
+[11:37:52] INFO      GLD: 5 signals | W:0 L:0 | WR:0%
+[11:37:52] INFO    Backtesting SLV (270 days)...
+[11:37:52] INFO      SLV: 6 signals | W:0 L:6 | WR:0%
+[11:37:52] INFO    Backtesting USO (270 days)...
+[11:37:52] INFO      USO: 4 signals | W:0 L:4 | WR:0%
+[11:37:52] INFO    Backtesting UUP (270 days)...
+[11:37:52] INFO      UUP: 37 signals | W:8 L:1 | WR:22%
+[11:37:52] INFO    Backtesting IJR (270 days)...
+[11:37:52] INFO      IJR: 44 signals | W:0 L:6 | WR:0%
+[11:37:52] INFO    Backtesting NTLA (270 days)...
+[11:37:52] INFO      NTLA: 0 signals
+[11:37:52] INFO    Backtesting ARM (270 days)...
+[11:37:52] INFO      ARM: 5 signals | W:0 L:4 | WR:0%
+[11:37:53] INFO    Backtesting LDOS (270 days)...
+[11:37:53] INFO      LDOS: 55 signals | W:17 L:3 | WR:31%
+[11:37:53] INFO    Backtesting ALGM (270 days)...
+[11:37:53] INFO      ALGM: 17 signals | W:10 L:4 | WR:59%
+[11:37:53] INFO    Backtesting BA (270 days)...
+[11:37:53] INFO      BA: 5 signals | W:0 L:3 | WR:0%
+[11:37:53] INFO    Backtesting RIVN (270 days)...
+[11:37:53] INFO      RIVN: 8 signals | W:1 L:7 | WR:12%
+[11:37:53] INFO    Backtesting RBLX (270 days)...
+[11:37:53] INFO      RBLX: 0 signals
+[11:37:53] INFO    Backtesting SNAP (270 days)...
+[11:37:53] INFO      SNAP: 0 signals
+[11:37:53] INFO    Backtesting RARE (270 days)...
+[11:37:53] INFO      RARE: 15 signals | W:0 L:8 | WR:0%
+[11:37:53] INFO    Backtesting CRWD (270 days)...
+[11:37:53] INFO      CRWD: 28 signals | W:2 L:15 | WR:7%
+[11:37:53] INFO    Backtesting PANW (270 days)...
+[11:37:54] INFO      PANW: 39 signals | W:11 L:14 | WR:28%
+[11:37:54] INFO    Backtesting RKLB (270 days)...
+[11:37:54] INFO      RKLB: 0 signals
+[11:37:54] INFO    Backtesting SMCI (270 days)...
+[11:37:54] INFO      SMCI: 0 signals
+[11:37:54] INFO    Backtesting HOOD (270 days)...
+[11:37:54] INFO      HOOD: 0 signals
+[11:37:54] INFO    Backtesting MRNA (270 days)...
+[11:37:54] INFO      MRNA: 0 signals
+[11:37:54] INFO  ============================================================
+[11:37:54] INFO  BACKTEST RESULTS — 60 days | 1332 signals
+[11:37:54] INFO  ============================================================
+[11:37:54] INFO  Win rate:    12.1%  (161W / 425L / 746 timeout)
+[11:37:54] INFO  Avg win:     +8.76%   Avg loss:  -4.66%
+[11:37:54] INFO  Expectancy:  -3.04% per trade (win/loss only — understates)
+[11:37:54] INFO  Mean pnl:    +0.563% per trade (TRUE EV, incl. timeouts)
+[11:37:54] INFO  Long:  763 signals | 13.6% WR
+[11:37:54] INFO  Short: 569 signals | 10.0% WR
+[11:37:54] INFO  
+By regime:
+[11:37:54] INFO    trending_up     13.4% WR (957 trades)
+[11:37:54] INFO    trending_down   10.3% WR (300 trades)
+[11:37:54] INFO    ranging         2.7% WR (75 trades)
+[11:37:54] INFO  
+RSI buckets:
+[11:37:54] INFO    RSI 40-50: 6.8% WR
+[11:37:54] INFO    RSI 50-60: 9.7% WR
+[11:37:54] INFO    RSI 60-72: 13.5% WR
+[11:37:54] INFO  
+Volume buckets:
+[11:37:54] INFO    Vol <1.1x: 11.6% WR
+[11:37:54] INFO    Vol 1.1-2x: 13.3% WR
+[11:37:54] INFO    Vol >2x: 12.0% WR
+[11:37:54] INFO  ============================================================
+[11:37:54] INFO  Backtest saved to bot_state/backtest_latest.json
+[11:37:54] INFO  Running backtest: 62 symbols, 180 days lookback
+[11:37:54] INFO    Backtesting SPY (390 days)...
+[11:37:54] INFO      SPY: 78 signals | W:8 L:26 | WR:10%
+[11:37:54] INFO    Backtesting QQQ (390 days)...
+[11:37:54] INFO      QQQ: 72 signals | W:22 L:34 | WR:31%
+[11:37:55] INFO    Backtesting IWM (390 days)...
+[11:37:55] INFO      IWM: 84 signals | W:1 L:20 | WR:1%
+[11:37:55] INFO    Backtesting DIA (390 days)...
+[11:37:55] INFO      DIA: 93 signals | W:0 L:17 | WR:0%
+[11:37:55] INFO    Backtesting MDY (390 days)...
+[11:37:55] INFO      MDY: 87 signals | W:0 L:16 | WR:0%
+[11:37:55] INFO    Backtesting VXX (390 days)...
+[11:37:55] INFO      VXX: 75 signals | W:1 L:26 | WR:1%
+[11:37:55] INFO    Backtesting EEM (390 days)...
+[11:37:55] INFO      EEM: 99 signals | W:18 L:37 | WR:18%
+[11:37:56] INFO    Backtesting EFA (390 days)...
+[11:37:56] INFO      EFA: 80 signals | W:11 L:30 | WR:14%
+[11:37:56] INFO    Backtesting FXI (390 days)...
+[11:37:56] INFO      FXI: 62 signals | W:5 L:34 | WR:8%
+[11:37:56] INFO    Backtesting EWJ (390 days)...
+[11:37:56] INFO      EWJ: 81 signals | W:12 L:28 | WR:15%
+[11:37:56] INFO    Backtesting IEUR (390 days)...
+[11:37:56] INFO      IEUR: 80 signals | W:7 L:28 | WR:9%
+[11:37:56] INFO    Backtesting AAPL (390 days)...
+[11:37:56] INFO      AAPL: 81 signals | W:8 L:23 | WR:10%
+[11:37:57] INFO    Backtesting MSFT (390 days)...
+[11:37:57] INFO      MSFT: 81 signals | W:13 L:21 | WR:16%
+[11:37:57] INFO    Backtesting NVDA (390 days)...
+[11:37:57] INFO      NVDA: 41 signals | W:6 L:17 | WR:15%
+[11:37:57] INFO    Backtesting GOOGL (390 days)...
+[11:37:57] INFO      GOOGL: 101 signals | W:17 L:29 | WR:17%
+[11:37:57] INFO    Backtesting META (390 days)...
+[11:37:57] INFO      META: 92 signals | W:11 L:32 | WR:12%
+[11:37:57] INFO    Backtesting AMZN (390 days)...
+[11:37:57] INFO      AMZN: 70 signals | W:2 L:43 | WR:3%
+[11:37:57] INFO    Backtesting TSLA (390 days)...
+[11:37:57] INFO      TSLA: 41 signals | W:0 L:21 | WR:0%
+[11:37:58] INFO    Backtesting AMD (390 days)...
+[11:37:58] INFO      AMD: 57 signals | W:13 L:32 | WR:23%
+[11:37:58] INFO    Backtesting PLTR (390 days)...
+[11:37:58] INFO      PLTR: 44 signals | W:3 L:20 | WR:7%
+[11:37:58] INFO    Backtesting COIN (390 days)...
+[11:37:58] INFO      COIN: 9 signals | W:4 L:0 | WR:44%
+[11:37:58] INFO    Backtesting JPM (390 days)...
+[11:37:58] INFO      JPM: 61 signals | W:1 L:32 | WR:2%
+[11:37:58] INFO    Backtesting BAC (390 days)...
+[11:37:58] INFO      BAC: 73 signals | W:1 L:23 | WR:1%
+[11:37:58] INFO    Backtesting GS (390 days)...
+[11:37:58] INFO      GS: 85 signals | W:10 L:12 | WR:12%
+[11:37:59] INFO    Backtesting MS (390 days)...
+[11:37:59] INFO      MS: 103 signals | W:7 L:18 | WR:7%
+[11:37:59] INFO    Backtesting C (390 days)...
+[11:37:59] INFO      C: 91 signals | W:15 L:27 | WR:16%
+[11:37:59] INFO    Backtesting XOM (390 days)...
+[11:37:59] INFO      XOM: 84 signals | W:22 L:28 | WR:26%
+[11:37:59] INFO    Backtesting CVX (390 days)...
+[11:37:59] INFO      CVX: 71 signals | W:20 L:14 | WR:28%
+[11:38:00] WARN    MRO: insufficient history
+[11:38:00] INFO    Backtesting UNH (390 days)...
+[11:38:00] INFO      UNH: 117 signals | W:1 L:43 | WR:1%
+[11:38:00] INFO    Backtesting LLY (390 days)...
+[11:38:00] INFO      LLY: 79 signals | W:7 L:22 | WR:9%
+[11:38:00] INFO    Backtesting ABBV (390 days)...
+[11:38:01] INFO      ABBV: 30 signals | W:0 L:12 | WR:0%
+[11:38:01] INFO    Backtesting XLK (390 days)...
+[11:38:01] INFO      XLK: 67 signals | W:22 L:39 | WR:33%
+[11:38:01] INFO    Backtesting XLF (390 days)...
+[11:38:01] INFO      XLF: 46 signals | W:0 L:19 | WR:0%
+[11:38:01] INFO    Backtesting XLE (390 days)...
+[11:38:01] INFO      XLE: 86 signals | W:21 L:28 | WR:24%
+[11:38:01] INFO    Backtesting XLV (390 days)...
+[11:38:01] INFO      XLV: 53 signals | W:11 L:21 | WR:21%
+[11:38:01] INFO    Backtesting XBI (390 days)...
+[11:38:02] INFO      XBI: 82 signals | W:9 L:20 | WR:11%
+[11:38:02] INFO    Backtesting XRT (390 days)...
+[11:38:02] INFO      XRT: 40 signals | W:0 L:14 | WR:0%
+[11:38:02] INFO    Backtesting XLU (390 days)...
+[11:38:02] INFO      XLU: 36 signals | W:3 L:13 | WR:8%
+[11:38:02] INFO    Backtesting XLI (390 days)...
+[11:38:02] INFO      XLI: 82 signals | W:11 L:11 | WR:13%
+[11:38:02] INFO    Backtesting XLP (390 days)...
+[11:38:02] INFO      XLP: 68 signals | W:5 L:41 | WR:7%
+[11:38:03] INFO    Backtesting TLT (390 days)...
+[11:38:03] INFO      TLT: 37 signals | W:3 L:20 | WR:8%
+[11:38:03] INFO    Backtesting GLD (390 days)...
+[11:38:03] INFO      GLD: 58 signals | W:21 L:10 | WR:36%
+[11:38:03] INFO    Backtesting SLV (390 days)...
+[11:38:03] INFO      SLV: 64 signals | W:32 L:28 | WR:50%
+[11:38:03] INFO    Backtesting USO (390 days)...
+[11:38:03] INFO      USO: 62 signals | W:8 L:21 | WR:13%
+[11:38:03] INFO    Backtesting UUP (390 days)...
+[11:38:03] INFO      UUP: 72 signals | W:9 L:19 | WR:12%
+[11:38:04] INFO    Backtesting IJR (390 days)...
+[11:38:04] INFO      IJR: 96 signals | W:0 L:12 | WR:0%
+[11:38:04] INFO    Backtesting NTLA (390 days)...
+[11:38:04] INFO      NTLA: 0 signals
+[11:38:04] INFO    Backtesting ARM (390 days)...
+[11:38:04] INFO      ARM: 26 signals | W:0 L:18 | WR:0%
+[11:38:04] INFO    Backtesting LDOS (390 days)...
+[11:38:04] INFO      LDOS: 82 signals | W:17 L:8 | WR:21%
+[11:38:04] INFO    Backtesting ALGM (390 days)...
+[11:38:04] INFO      ALGM: 52 signals | W:12 L:22 | WR:23%
+[11:38:05] INFO    Backtesting BA (390 days)...
+[11:38:05] INFO      BA: 35 signals | W:1 L:16 | WR:3%
+[11:38:05] INFO    Backtesting RIVN (390 days)...
+[11:38:05] INFO      RIVN: 9 signals | W:1 L:7 | WR:11%
+[11:38:05] INFO    Backtesting RBLX (390 days)...
+[11:38:05] INFO      RBLX: 12 signals | W:2 L:7 | WR:17%
+[11:38:05] INFO    Backtesting SNAP (390 days)...
+[11:38:05] INFO      SNAP: 39 signals | W:11 L:12 | WR:28%
+[11:38:05] INFO    Backtesting RARE (390 days)...
+[11:38:05] INFO      RARE: 20 signals | W:1 L:11 | WR:5%
+[11:38:05] INFO    Backtesting CRWD (390 days)...
+[11:38:05] INFO      CRWD: 61 signals | W:4 L:24 | WR:7%
+[11:38:06] INFO    Backtesting PANW (390 days)...
+[11:38:06] INFO      PANW: 90 signals | W:24 L:33 | WR:27%
+[11:38:06] INFO    Backtesting RKLB (390 days)...
+[11:38:06] INFO      RKLB: 0 signals
+[11:38:06] INFO    Backtesting SMCI (390 days)...
+[11:38:06] INFO      SMCI: 11 signals | W:0 L:6 | WR:0%
+[11:38:06] INFO    Backtesting HOOD (390 days)...
+[11:38:06] INFO      HOOD: 2 signals | W:0 L:2 | WR:0%
+[11:38:06] INFO    Backtesting MRNA (390 days)...
+[11:38:06] INFO      MRNA: 4 signals | W:2 L:0 | WR:50%
+[11:38:06] INFO  ============================================================
+[11:38:06] INFO  BACKTEST RESULTS — 180 days | 3694 signals
+[11:38:06] INFO  ============================================================
+[11:38:06] INFO  Win rate:    12.9%  (476W / 1247L / 1971 timeout)
+[11:38:06] INFO  Avg win:     +8.36%   Avg loss:  -4.28%
+[11:38:06] INFO  Expectancy:  -2.66% per trade (win/loss only — understates)
+[11:38:06] INFO  Mean pnl:    +0.472% per trade (TRUE EV, incl. timeouts)
+[11:38:06] INFO  Long:  2312 signals | 14.4% WR
+[11:38:06] INFO  Short: 1382 signals | 10.3% WR
+[11:38:06] INFO  
+By regime:
+[11:38:06] INFO    trending_up     14.0% WR (2758 trades)
+[11:38:06] INFO    trending_down   10.5% WR (829 trades)
+[11:38:06] INFO    ranging         3.7% WR (107 trades)
+[11:38:06] INFO  
+RSI buckets:
+[11:38:06] INFO    RSI 40-50: 8.7% WR
+[11:38:06] INFO    RSI 50-60: 9.6% WR
+[11:38:06] INFO    RSI 60-72: 14.5% WR
+[11:38:06] INFO  
+Volume buckets:
+[11:38:06] INFO    Vol <1.1x: 11.2% WR
+[11:38:06] INFO    Vol 1.1-2x: 16.3% WR
+[11:38:06] INFO    Vol >2x: 18.4% WR
+[11:38:06] INFO  ============================================================
+[11:38:06] INFO  Backtest saved to bot_state/backtest_latest.json
+[11:38:07] INFO  Telegram sent (272 chars) attempt 1
+[11:38:07] INFO  Recent regime: 12.1% WR vs 12.9% historical (-0.8%)
+[11:38:07] INFO    SHA check trades.json: 200
+[11:38:08] INFO    Commit trades.json: 200
+[11:38:08] INFO    Committed trades.json to repo
+[11:38:08] INFO    SHA check feedback.json: 200
+[11:38:09] INFO    Commit feedback.json: 200
+[11:38:09] INFO    Committed feedback.json to repo
+[11:38:09] INFO    SHA check backtest_latest.json: 200
+[11:38:10] INFO    Commit backtest_latest.json: 200
+[11:38:10] INFO    Committed backtest_latest.json to repo
+[11:38:10] INFO    SHA check auto_adjust_latest.json: 200
+[11:38:11] INFO    Commit auto_adjust_latest.json: 200
+[11:38:11] INFO    Committed auto_adjust_latest.json to repo
