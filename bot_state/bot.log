@@ -12155,3 +12155,173 @@ Run complete: 1 new position(s) opened
 [14:54:27] INFO    SHA check auto_adjust_latest.json: 200
 [14:54:28] INFO    Commit auto_adjust_latest.json: 200
 [14:54:28] INFO    Committed auto_adjust_latest.json to repo
+[14:54:29] INFO    SHA check bot.log: 200
+[14:54:30] INFO    Commit bot.log: 200
+[14:54:30] INFO    Committed bot.log to repo
+[14:54:31] INFO    SHA check watchlist.json: 200
+[14:54:32] INFO    Commit watchlist.json: 200
+[14:54:32] INFO    Committed watchlist.json to repo
+[14:54:32] INFO    SHA check research_digest.json: 200
+[14:54:33] INFO    Commit research_digest.json: 200
+[14:54:33] INFO    Committed research_digest.json to repo
+[14:54:33] INFO    SHA check fed_insights.json: 200
+[14:54:34] INFO    Commit fed_insights.json: 200
+[14:54:34] INFO    Committed fed_insights.json to repo
+[14:54:34] INFO    SHA check tg_offset.json: 200
+[14:54:35] INFO    Commit tg_offset.json: 200
+[14:54:35] INFO    Committed tg_offset.json to repo
+[14:54:35] INFO    Skip paused.json — not found at bot_state/paused.json
+[14:54:36] INFO    SHA check near_miss.json: 200
+[14:54:37] INFO    Commit near_miss.json: 200
+[14:54:37] INFO    Committed near_miss.json to repo
+[14:54:37] INFO    SHA check last_run.json: 200
+[14:54:38] INFO    Commit last_run.json: 200
+[14:54:38] INFO    Committed last_run.json to repo
+[14:54:38] INFO    Skip risk_overrides.json — not found at bot_state/risk_overrides.json
+[14:54:38] INFO    Skip risk_overrides_pending.json — not found at bot_state/risk_overrides_pending.json
+[14:54:38] INFO    Skip risk_overrides_prev.json — not found at bot_state/risk_overrides_prev.json
+[14:54:38] INFO  State commit complete: 11/15 files
+[15:23:20] INFO  ============================================================
+[15:23:20] INFO  TRADING BOT RUN | 2026-07-16 15:23 ET | open | mode=scan
+[15:23:20] INFO  Paper mode: True | Telegram: yes
+[15:23:20] INFO  ============================================================
+[15:23:20] INFO  Fetching macro data...
+[15:23:22] INFO    Futures: ES=-0.63% NQ=-1.72% Gold=-1.49% -> RISK-OFF
+[15:23:22] INFO    Fed:3.63% CPI:3.7% VIX:16.8(normal) Regime:ranging
+[15:23:22] INFO    Scanning StockTwits sentiment...
+[15:23:23] INFO    Fear & Greed: 41 (fear) +0.0 from yesterday
+[15:23:23] INFO    Market breadth: 50% above SMA50 — neutral
+[15:23:23] INFO  Fetching price data for 62 tickers...
+[15:23:23] INFO    MACRO TRIGGER on SPY: iran, china, taiwan
+[15:23:23] INFO    MACRO ALERT on SPY: iran, china, taiwan
+[15:23:23] INFO    SPY    $ 749.62 (-0.7%)  RSI: 53.8  ATR:1.11%  Vol:0.5x  up NEG
+[15:23:24] INFO    MACRO TRIGGER on QQQ: china, taiwan, semiconductor
+[15:23:24] INFO    MACRO ALERT on QQQ: china, taiwan, semiconductor
+[15:23:24] INFO    QQQ    $ 704.41 (-1.9%)  RSI: 45.1  ATR:2.11%  Vol:0.7x  dn NEG
+[15:23:25] INFO    IWM    $ 294.82 (-0.3%)  RSI: 51.9  ATR:1.57%  Vol:0.7x  up
+[15:23:25] INFO    MACRO TRIGGER on DIA: trump
+[15:23:25] INFO    MACRO ALERT on DIA: trump
+[15:23:25] INFO    DIA    $ 524.09 (-0.4%)  RSI: 57.9  ATR:1.04%  Vol:0.6x  up NEG
+[15:23:26] INFO    MDY    $ 691.00 (+0.2%)  RSI: 52.9  ATR:1.37%  Vol:0.4x  up
+[15:23:27] INFO    VXX    $  21.50 (+3.1%)  RSI: 40.9  ATR:4.17%  Vol:0.6x  dn
+[15:23:27] INFO    EEM    $  64.03 (-2.3%)  RSI: 41.5  ATR:2.61%  Vol:0.5x  dn
+[15:23:28] INFO    EFA    $ 103.71 (-0.9%)  RSI: 51.2  ATR:1.27%  Vol:0.4x  up
+[15:23:29] INFO    MACRO TRIGGER on FXI: trump
+[15:23:29] INFO    MACRO ALERT on FXI: trump
+[15:23:29] INFO    FXI    $  34.51 (+0.7%)  RSI: 61.4  ATR:1.59%  Vol:0.4x  dn NEG
+[15:23:29] INFO    EWJ    $  91.76 (-1.9%)  RSI: 45.6  ATR:1.83%  Vol:0.4x  dn
+[15:23:30] INFO    IEUR   $  75.22 (-0.4%)  RSI: 53.6  ATR:1.17%  Vol:1.2x  up
+[15:23:31] INFO    MACRO TRIGGER on AAPL: china, taiwan
+[15:23:31] INFO    MACRO ALERT on AAPL: china, taiwan
+[15:23:31] INFO    AAPL   $ 334.00 (+2.0%)  RSI: 71.8  ATR:2.48%  Vol:0.6x  up NEG
+[15:23:31] INFO    MACRO TRIGGER on MSFT: china, taiwan
+[15:23:31] INFO    MACRO ALERT on MSFT: china, taiwan
+[15:23:31] INFO    MSFT   $ 402.82 (+1.8%)  RSI: 57.1  ATR:3.01%  Vol:0.5x  -> NEG
+[15:23:32] INFO    MACRO TRIGGER on NVDA: china, taiwan, semiconductor
+[15:23:32] INFO    MACRO ALERT on NVDA: china, taiwan, semiconductor
+[15:23:32] INFO    NVDA   $ 206.54 (-2.8%)  RSI: 51.4  ATR:3.55%  Vol:0.6x  dn NEG
+[15:23:33] INFO    GOOGL  $ 353.71 (-4.6%)  RSI: 45.8  ATR:3.27%  Vol:0.8x  dn
+[15:23:33] INFO    MACRO TRIGGER on META: china, taiwan
+[15:23:33] INFO    MACRO ALERT on META: china, taiwan
+[15:23:33] INFO    META   $ 664.05 (-2.5%)  RSI: 61.7  ATR:3.79%  Vol:0.5x  -> NEG
+[15:23:34] INFO    MACRO TRIGGER on AMZN: china, taiwan
+[15:23:34] INFO    MACRO ALERT on AMZN: china, taiwan
+[15:23:34] INFO    AMZN   $ 251.89 (-1.2%)  RSI: 56.4  ATR:2.95%  Vol:0.5x  dn NEG
+[15:23:35] INFO    MACRO TRIGGER on TSLA: china, taiwan
+[15:23:35] INFO    MACRO ALERT on TSLA: china, taiwan
+[15:23:35] INFO    TSLA   $ 390.74 (-0.9%)  RSI: 45.9  ATR:4.38%  Vol:0.6x  dn NEG
+[15:23:35] INFO    AMD    $ 495.33 (-6.4%)  RSI: 46.1  ATR:7.49%  Vol:0.7x  dn
+[15:23:36] INFO    PLTR   $ 133.93 (+0.1%)  RSI: 55.2  ATR:5.14%  Vol:0.5x  ->
+[15:23:37] INFO    COIN   $ 161.90 (-3.2%)  RSI: 49.1  ATR:5.94%  Vol:0.5x  dn
+[15:23:37] INFO    JPM    $ 343.63 (-0.9%)  RSI: 63.9  ATR:2.26%  Vol:0.4x  up
+[15:23:38] INFO    BAC    $  61.67 (+0.1%)  RSI: 73.3  ATR:2.02%  Vol:0.7x  up
+[15:23:39] INFO    GS     $1093.98 (-5.0%)  RSI: 56.4  ATR:3.37%  Vol:0.8x  up
+[15:23:39] INFO    MS     $ 216.78 (-5.1%)  RSI: 49.8  ATR:3.16%  Vol:0.9x  up
+[15:23:40] INFO    C      $ 132.47 (-1.8%)  RSI: 40.9  ATR:2.99%  Vol:0.5x  dn
+[15:23:41] INFO    XOM    $ 146.10 (+1.1%)  RSI: 57.4  ATR:2.28%  Vol:0.4x  up
+[15:23:42] INFO    MACRO TRIGGER on CVX: oil
+[15:23:42] INFO    MACRO ALERT on CVX: oil
+[15:23:42] INFO    CVX    $ 184.17 (+1.4%)  RSI: 60.0  ATR:2.10%  Vol:0.4x  up NEG
+[15:23:44] INFO    UNH    $ 425.61 (+1.7%)  RSI: 57.8  ATR:2.88%  Vol:1.8x  up
+[15:23:47] INFO    MACRO TRIGGER on LLY: trump, iran
+[15:23:47] INFO    MACRO ALERT on LLY: trump, iran
+[15:23:47] INFO    LLY    $1169.39 (+1.1%)  RSI: 53.0  ATR:3.27%  Vol:0.6x  up NEG
+[15:23:47] INFO    ABBV   $ 252.65 (+3.5%)  RSI: 64.6  ATR:2.55%  Vol:0.3x  up
+[15:23:48] INFO    XLK    $ 177.05 (-2.5%)  RSI: 43.8  ATR:3.12%  Vol:0.6x  dn
+[15:23:48] INFO    XLF    $  56.62 (+0.1%)  RSI: 71.3  ATR:1.32%  Vol:0.6x  up
+[15:23:49] INFO    XLE    $  57.10 (+1.1%)  RSI: 59.2  ATR:2.01%  Vol:0.6x  up
+[15:23:50] INFO    XLV    $ 161.48 (+2.0%)  RSI: 59.8  ATR:1.70%  Vol:0.8x  up
+[15:23:50] INFO    XBI    $ 151.10 (-3.3%)  RSI: 50.7  ATR:2.82%  Vol:0.7x  up
+[15:23:51] INFO    XRT    $  90.38 (+1.4%)  RSI: 65.3  ATR:1.95%  Vol:0.7x  up
+[15:23:51] INFO    XLU    $  45.35 (+0.3%)  RSI: 52.1  ATR:1.46%  Vol:0.5x  up
+[15:23:52] INFO    XLI    $ 179.49 (-0.3%)  RSI: 49.5  ATR:1.69%  Vol:0.6x  up
+[15:23:53] INFO    XLP    $  85.64 (+2.6%)  RSI: 57.7  ATR:1.58%  Vol:0.7x  up
+[15:23:53] INFO    TLT    $  84.12 (-0.1%)  RSI: 38.6  ATR:0.66%  Vol:0.6x  dn
+[15:23:54] INFO    GLD    $ 365.12 (-1.9%)  RSI: 37.1  ATR:2.12%  Vol:1.0x  dn
+[15:23:54] INFO    SLV    $  50.25 (-3.8%)  RSI: 33.1  ATR:4.46%  Vol:0.8x  dn
+[15:23:55] INFO    MACRO TRIGGER on USO: iran, iran, oil
+[15:23:55] INFO    MACRO ALERT on USO: iran, iran, oil
+[15:23:55] INFO    USO    $ 119.17 (-1.8%)  RSI: 53.2  ATR:3.91%  Vol:0.6x  dn NEG
+[15:23:55] INFO    UUP    $  28.33 (+0.3%)  RSI: 54.0  ATR:0.42%  Vol:0.9x  up
+[15:23:56] INFO    IJR    $ 146.97 (+0.6%)  RSI: 61.4  ATR:1.38%  Vol:0.5x  up
+[15:23:57] INFO    NTLA   $  11.77 (-9.8%)  RSI: 32.1  ATR:10.16%  Vol:0.9x  dn NEG
+[15:23:57] INFO    ARM    $ 256.79 (-7.3%)  RSI: 35.9  ATR:11.88%  Vol:0.7x  dn
+[15:23:58] INFO    LDOS   $ 107.96 (-0.2%)  RSI: 42.2  ATR:3.47%  Vol:0.5x  dn
+[15:23:59] INFO    ALGM   $  46.72 (-6.6%)  RSI: 42.0  ATR:10.63%  Vol:0.3x  dn
+[15:24:00] INFO    RBLX   $  54.39 (-4.7%)  RSI: 54.9  ATR:5.68%  Vol:0.5x  ->
+[15:24:00] INFO    SNAP   $   4.74 (-0.3%)  RSI: 45.2  ATR:5.06%  Vol:0.7x  dn
+[15:24:01] INFO    RARE   $  29.93 (-5.6%)  RSI: 48.9  ATR:5.52%  Vol:0.2x  ->
+[15:24:02] INFO    CRWD   $ 202.01 (-2.3%)  RSI: 62.0  ATR:5.15%  Vol:0.5x  up
+[15:24:02] INFO    PANW   $ 351.50 (-0.7%)  RSI: 64.9  ATR:4.54%  Vol:0.5x  up
+[15:24:03] INFO    RKLB   $  67.12 (-11.9%)  RSI: 30.8  ATR:12.41%  Vol:1.0x  dn
+[15:24:03] INFO    SMCI   $  24.95 (-7.2%)  RSI: 36.2  ATR:9.16%  Vol:0.5x  dn
+[15:24:04] INFO    HOOD   $ 106.39 (-7.9%)  RSI: 52.6  ATR:6.26%  Vol:0.8x  ->
+[15:24:05] INFO    MRNA   $  63.46 (-7.1%)  RSI: 48.1  ATR:7.68%  Vol:0.4x  up
+[15:24:06] INFO    BIIB   $ 208.39 (+5.7%)  RSI: 54.6  ATR:4.21%  Vol:0.7x  up
+[15:24:06] INFO    MACRO TRIGGER on ASTS: trump, iran
+[15:24:06] INFO    MACRO ALERT on ASTS: trump, iran
+[15:24:06] INFO    ASTS   $  54.92 (-17.2%)  RSI: 31.8  ATR:14.55%  Vol:2.3x  dn NEG
+[15:24:07] INFO  Account equity: $926,648.43 | Buying power: $3,531,646.83
+[15:24:07] INFO  Macro alert already sent today — skipping
+[15:24:07] INFO  
+-- Position Monitor ------------------------------------------
+[15:24:07] INFO  Syncing positions from Alpaca...
+[15:24:07] INFO  Position sync complete
+[15:24:08] INFO  Monitoring 6 open position(s)
+[15:24:08] INFO    Real-time quote IJR: $146.99
+[15:24:08] INFO    Real-time quote DIA: $524.09
+[15:24:08] INFO    Real-time quote ABBV: $244.95
+[15:24:08] INFO    Real-time quote XLV: $161.51
+[15:24:08] INFO    Real-time quote XLU: $45.34
+[15:24:08] INFO    Real-time quote XLP: $85.65
+[15:24:09] INFO    Trailing stop: ABBV long $247.81 -> $251.33 | trailing 0.5% below (up 2.0%)
+[15:24:10] INFO    Stop leg updated: ABBV -> $251.33
+[15:24:10] INFO  Telegram sent (117 chars) attempt 1
+[15:24:10] WARN    Time exit (max hold): XLP open 196.0h — force closing
+[15:24:10] ERROR   Close failed XLP: 403 {"available":"0","code":40310000,"existing_qty":"272","held_for_orders":"272","message":"insufficien
+[15:24:10] WARN    Time exit (max hold): XLU open 196.0h — force closing
+[15:24:11] ERROR   Close failed XLU: 403 {"available":"0","code":40310000,"existing_qty":"507","held_for_orders":"507","message":"insufficien
+[15:24:11] WARN    Time exit (max hold): ABBV open 28.4h — force closing
+[15:24:11] ERROR   Close failed ABBV: 403 {"available":"0","code":40310000,"existing_qty":"93","held_for_orders":"93","message":"insufficient 
+[15:24:11] WARN    Time exit (dead money): IJR open 28.3h, P&L +0.1% — closing
+[15:24:11] ERROR   Close failed IJR: 403 {"available":"0","code":40310000,"existing_qty":"157","held_for_orders":"157","message":"insufficien
+[15:24:11] WARN    Time exit (dead money): DIA open 28.3h, P&L -0.5% — closing
+[15:24:11] ERROR   Close failed DIA: 403 {"available":"0","code":40310000,"existing_qty":"44","held_for_orders":"44","message":"insufficient 
+[15:24:11] WARN    Time exit (dead money): XLV open 4.3h, P&L -0.4% — closing
+[15:24:12] ERROR   Close failed XLV: 403 {"available":"0","code":40310000,"existing_qty":"185","held_for_orders":"185","message":"insufficien
+[15:24:12] INFO  -- Monitor complete -------------------------------------------
+
+[15:24:12] INFO  Open positions: 6/6
+[15:24:12] INFO  Max positions reached — not scanning for new entries
+[15:24:12] INFO    SHA check trades.json: 200
+[15:24:13] INFO    Commit trades.json: 200
+[15:24:13] INFO    Committed trades.json to repo
+[15:24:13] INFO    SHA check feedback.json: 200
+[15:24:14] INFO    Commit feedback.json: 200
+[15:24:14] INFO    Committed feedback.json to repo
+[15:24:15] INFO    SHA check backtest_latest.json: 200
+[15:24:16] INFO    Commit backtest_latest.json: 200
+[15:24:16] INFO    Committed backtest_latest.json to repo
+[15:24:16] INFO    SHA check auto_adjust_latest.json: 200
+[15:24:17] INFO    Commit auto_adjust_latest.json: 200
+[15:24:17] INFO    Committed auto_adjust_latest.json to repo
