@@ -42,6 +42,16 @@ SMALL_ACCT_MAX_POS_PCT = float(os.environ.get("SMALL_ACCT_MAX_POS_PCT", "0.34"))
 # Fewer concurrent slots in small-account mode so total deployed capital stays
 # near 100% of the simulated equity instead of quietly using margin.
 SMALL_ACCT_MAX_POSITIONS = int(os.environ.get("SMALL_ACCT_MAX_POSITIONS", "3"))
+# Options-only mode (default off). When on, signals on OPTIONS_TICKERS underlyings
+# are traded as long calls/puts instead of stock; non-optionable names are skipped.
+OPTIONS_ENABLED   = os.environ.get("OPTIONS_ENABLED", "false").lower() == "true"
+OPTIONS_MIN_DTE   = int(os.environ.get("OPTIONS_MIN_DTE", "7"))
+OPTIONS_MAX_DTE   = int(os.environ.get("OPTIONS_MAX_DTE", "21"))
+OPTIONS_MONEYNESS = os.environ.get("OPTIONS_MONEYNESS", "itm").lower()  # itm | atm
+# Dry run: do contract discovery + quoting + sizing and LOG the trade it would
+# place, but do NOT send the order. Use this on the first live activation to
+# confirm the Alpaca options API responses before trading real (paper) orders.
+OPTIONS_DRY_RUN   = os.environ.get("OPTIONS_DRY_RUN", "false").lower() == "true"
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
@@ -2403,6 +2413,331 @@ def update_stop_loss(symbol: str, order_id: str, new_stop: float) -> bool:
     return False
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# OPTIONS EXECUTION  (options-only mode, gated by OPTIONS_ENABLED, default off)
+#
+# Long calls for long signals, long puts for shorts — approval level 1, defined
+# risk = premium paid. Alpaca has NO bracket/OCO on options, so stop & target are
+# SYNTHETIC: monitor_option_positions() watches the UNDERLYING price and market-
+# sells the contract when the signal's stop or target is hit, plus a theta/time
+# stop and EOD close. Option trades live in trades.json flagged is_option=True
+# with option_symbol=OCC; every equity monitor/sync path skips them.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def parse_occ_symbol(occ: str) -> dict | None:
+    """Parse an OCC symbol e.g. 'SPY260725C00550000' -> underlying/expiry/type/
+    strike. Pure — unit-tested in test_options.py."""
+    m = re.match(r"^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$", (occ or "").strip())
+    if not m:
+        return None
+    root, yy, mm, dd, cp, strike8 = m.groups()
+    try:
+        expiry = date(2000 + int(yy), int(mm), int(dd))
+    except ValueError:
+        return None
+    return {"underlying": root, "expiry": expiry,
+            "type": "call" if cp == "C" else "put",
+            "strike": int(strike8) / 1000.0}
+
+
+def _pick_expiry(expiries: list, today: date, min_dte: int, max_dte: int):
+    """Nearest expiry with DTE in [min_dte, max_dte]; else closest future expiry
+    to the window. Pure — unit-tested."""
+    dated = sorted(set(expiries))
+    in_window = [e for e in dated if min_dte <= (e - today).days <= max_dte]
+    if in_window:
+        return in_window[0]
+    future = [e for e in dated if (e - today).days >= 1]
+    return min(future, key=lambda e: abs((e - today).days - min_dte)) if future else None
+
+
+def _pick_strike(strikes: list, spot: float, otype: str, moneyness: str):
+    """'itm' = nearest in-the-money strike; 'atm' = nearest to spot. Pure."""
+    strikes = sorted(set(strikes))
+    if not strikes:
+        return None
+    if moneyness == "atm":
+        return min(strikes, key=lambda s: abs(s - spot))
+    if otype == "call":
+        itm = [s for s in strikes if s <= spot]
+        return max(itm) if itm else min(strikes)
+    itm = [s for s in strikes if s >= spot]
+    return min(itm) if itm else max(strikes)
+
+
+def _size_contracts(cap_dollars: float, ask_per_share: float) -> int:
+    """Contracts affordable within the dollar cap (each contract = 100 shares)."""
+    if ask_per_share <= 0:
+        return 0
+    return int(cap_dollars / (ask_per_share * 100.0))
+
+
+def option_exit_decision(direction: str, u_price: float,
+                         stop: float, target: float) -> str | None:
+    """Synthetic exit on the UNDERLYING: 'target', 'stop', or None. Pure.
+    Long signal (call): stop < entry < target. Short signal (put): target <
+    entry < stop."""
+    if u_price <= 0:
+        return None
+    if direction == "long":
+        if u_price >= target: return "target"
+        if u_price <= stop:   return "stop"
+    else:
+        if u_price <= target: return "target"
+        if u_price >= stop:   return "stop"
+    return None
+
+
+def options_trading_enabled() -> bool:
+    """Preflight: confirm the Alpaca account is approved for options (level >= 1)."""
+    try:
+        r = requests.get(f"{ALPACA_BASE}/v2/account", headers=ALPACA_HEADERS, timeout=8)
+        if r.ok:
+            a = r.json()
+            lvl = a.get("options_trading_level", a.get("options_approved_level", 0)) or 0
+            return int(lvl) >= 1
+    except Exception as e:
+        log(f"  Options preflight error: {e}", "WARN")
+    return False
+
+
+def _fetch_option_chain(underlying: str, otype: str, today: date) -> list:
+    lo = (today + timedelta(days=OPTIONS_MIN_DTE)).isoformat()
+    hi = (today + timedelta(days=OPTIONS_MAX_DTE + 10)).isoformat()  # pad for fallback
+    try:
+        r = requests.get(
+            f"{ALPACA_BASE}/v2/options/contracts",
+            headers=ALPACA_HEADERS,
+            params={"underlying_symbols": underlying, "type": otype, "status": "active",
+                    "expiration_date_gte": lo, "expiration_date_lte": hi, "limit": 1000},
+            timeout=10)
+        if r.ok:
+            return r.json().get("option_contracts", [])
+        log(f"  Option chain {underlying}: {r.status_code} {r.text[:100]}", "WARN")
+    except Exception as e:
+        log(f"  Option chain error {underlying}: {e}", "WARN")
+    return []
+
+
+def select_option_contract(underlying: str, otype: str, spot: float, today: date) -> dict | None:
+    contracts = _fetch_option_chain(underlying, otype, today)
+    if not contracts:
+        return None
+    by_exp: dict = {}
+    for c in contracts:
+        try:
+            exp = date.fromisoformat(c["expiration_date"])
+        except Exception:
+            continue
+        by_exp.setdefault(exp, []).append(c)
+    exp = _pick_expiry(list(by_exp.keys()), today, OPTIONS_MIN_DTE, OPTIONS_MAX_DTE)
+    if not exp:
+        return None
+    chain   = by_exp[exp]
+    strikes = [float(c["strike_price"]) for c in chain]
+    strike  = _pick_strike(strikes, spot, otype, OPTIONS_MONEYNESS)
+    if strike is None:
+        return None
+    pick = min(chain, key=lambda c: abs(float(c["strike_price"]) - strike))
+    return {"symbol": pick["symbol"], "strike": float(pick["strike_price"]),
+            "expiry": exp.isoformat(), "type": otype}
+
+
+def get_option_quote(occ: str) -> tuple[float, float, float]:
+    """(bid, ask, last) per share for an option contract; zeros on failure."""
+    try:
+        r = requests.get(
+            f"{ALPACA_DATA}/v1beta1/options/snapshots",
+            headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
+            params={"symbols": occ, "feed": "indicative"},
+            timeout=8)
+        if r.ok:
+            snap = r.json().get("snapshots", {}).get(occ, {})
+            q = snap.get("latestQuote", {}) or {}
+            t = snap.get("latestTrade", {}) or {}
+            return (float(q.get("bp", 0) or 0), float(q.get("ap", 0) or 0),
+                    float(t.get("p", 0) or 0))
+    except Exception as e:
+        log(f"  Option quote error {occ}: {e}", "WARN")
+    return (0.0, 0.0, 0.0)
+
+
+def _get_underlying_price(sym: str) -> float:
+    t = tickers.get(sym)
+    if t and t.price:
+        return float(t.price)
+    try:
+        r = requests.get(f"{ALPACA_DATA}/v2/stocks/{sym}/quotes/latest",
+                         headers={"APCA-API-KEY-ID": ALPACA_KEY,
+                                  "APCA-API-SECRET-KEY": ALPACA_SECRET}, timeout=6)
+        if r.ok:
+            q = r.json().get("quote", {})
+            ap, bp = float(q.get("ap", 0) or 0), float(q.get("bp", 0) or 0)
+            if ap and bp:
+                return round((ap + bp) / 2, 2)
+    except Exception:
+        pass
+    return 0.0
+
+
+def execute_option_signal(sig: dict, equity: float) -> tuple[bool, int]:
+    """Options-only execution: buy a long call (long signal) or put (short)."""
+    if not sig.get("approved"):
+        return False, 0
+    underlying = sig["symbol"]
+    if underlying not in OPTIONS_TICKERS:
+        log(f"  SKIP {underlying}: no liquid options chain (not in OPTIONS_TICKERS)")
+        return False, 0
+    otype = "call" if sig["direction"] == "long" else "put"
+    spot  = sig["entry"]
+    today = datetime.now(ET).date()
+    contract = select_option_contract(underlying, otype, spot, today)
+    if not contract:
+        log(f"  SKIP {underlying}: no contract in {OPTIONS_MIN_DTE}-{OPTIONS_MAX_DTE} DTE window")
+        return False, 0
+    occ = contract["symbol"]
+    bid, ask, last = get_option_quote(occ)
+    buy_px = ask or last
+    if buy_px <= 0:
+        log(f"  SKIP {occ}: no quote available", "WARN")
+        return False, 0
+    pos_pct     = SMALL_ACCT_MAX_POS_PCT if SMALL_ACCT_EQUITY > 0 else RISK["max_position_pct"]
+    cap_dollars = equity * pos_pct
+    contracts   = _size_contracts(cap_dollars, buy_px)
+    if contracts < 1:
+        log(f"  SKIP {occ}: 1 contract (${buy_px*100:.0f}) exceeds "
+            f"{pos_pct:.0%} cap of ${equity:,.0f}")
+        return False, 0
+    cost = contracts * buy_px * 100
+    if OPTIONS_DRY_RUN:
+        log(f"  [DRY RUN] would BUY {occ} x{contracts} @ ~${buy_px:.2f} (${cost:.0f}) | "
+            f"{otype.upper()} strike ${contract['strike']:.2f} exp {contract['expiry']} | "
+            f"underlying ${spot:.2f} stop ${sig['stop']:.2f} target ${sig['target']:.2f}")
+        return False, 0
+    order = {"symbol": occ, "qty": str(contracts), "side": "buy",
+             "type": "market", "time_in_force": "day"}
+    try:
+        r = requests.post(f"{ALPACA_BASE}/v2/orders", headers=ALPACA_HEADERS,
+                          json=order, timeout=10)
+        if r.status_code in (200, 201):
+            oid  = r.json().get("id", "unknown")
+            log(f"  OPTION ORDER: {occ} BUY x{contracts} @ ~${buy_px:.2f} (${cost:.0f}) | "
+                f"{otype.upper()} strike ${contract['strike']:.2f} exp {contract['expiry']} | id:{oid}")
+            trades = load_trades()
+            trades.append({
+                "order_id":          oid,
+                "symbol":            underlying,
+                "option_symbol":     occ,
+                "is_option":         True,
+                "option_type":       otype,
+                "strike":            contract["strike"],
+                "expiry":            contract["expiry"],
+                "contracts":         contracts,
+                "direction":         sig["direction"],
+                "signal_type":       sig["type"],
+                "entry_price":       round(buy_px, 4),   # premium/share — drives P&L + learning
+                "entry_premium":     round(buy_px, 4),
+                "underlying_entry":  spot,
+                "underlying_stop":   sig["stop"],
+                "underlying_target": sig["target"],
+                "shares":            contracts,           # keep field present for shared code
+                "risk_amount":       round(cost, 2),      # premium at risk (defined)
+                "criteria":          sig["criteria"],
+                "ai_score":          sig.get("ai_score"),
+                "ai_rec":            sig.get("ai_rec"),
+                "vix":               macro.vix,
+                "regime":            macro.market_regime,
+                "status":            "open",
+                "opened_at":         datetime.now(ET).isoformat(),
+                "paper_mode":        PAPER_MODE,
+            })
+            save_trades(trades)
+            _tg(f"Option Buy: {underlying} {otype.upper()} ${contract['strike']:.0f} "
+                f"exp {contract['expiry']}\nx{contracts} @ ~${buy_px:.2f} (${cost:.0f})\n"
+                f"Underlying stop ${sig['stop']:.2f} / target ${sig['target']:.2f}")
+            return True, contracts
+        log(f"  Option order failed {r.status_code}: {r.text[:150]}", "ERROR")
+    except Exception as e:
+        log(f"  Option execution error: {e}", "ERROR")
+    return False, 0
+
+
+def close_option_position(trade: dict, reason: str) -> bool:
+    """Market-sell an option to close. Mutates `trade` in place; caller saves."""
+    occ = trade.get("option_symbol")
+    qty = int(trade.get("contracts", 0))
+    if not occ or qty < 1:
+        return False
+    order = {"symbol": occ, "qty": str(qty), "side": "sell",
+             "type": "market", "time_in_force": "day"}
+    try:
+        r = requests.post(f"{ALPACA_BASE}/v2/orders", headers=ALPACA_HEADERS,
+                          json=order, timeout=10)
+        if r.status_code in (200, 201):
+            bid, ask, last = get_option_quote(occ)
+            exit_px  = bid or last or trade.get("entry_premium", 0)
+            entry_px = trade.get("entry_premium", 0) or trade.get("entry_price", 0)
+            pnl_pct    = ((exit_px - entry_px) / entry_px * 100) if entry_px else 0
+            pnl_dollar = (exit_px - entry_px) * qty * 100
+            trade["status"]       = "closed"
+            trade["close_reason"] = reason
+            trade["closed_at"]    = datetime.now(ET).isoformat()
+            trade["closed_price"] = round(exit_px, 4)
+            trade["pnl_pct"]      = round(pnl_pct, 2)
+            trade["pnl"]          = round(pnl_dollar, 2)
+            log(f"  OPTION CLOSED {occ} x{qty} @ ~${exit_px:.2f} "
+                f"P&L {pnl_pct:+.1f}% (${pnl_dollar:+.0f}) — {reason}")
+            log_trade_outcome(trade)
+            _tg(f"Option Close: {trade['symbol']} {trade.get('option_type','').upper()}\n"
+                f"P&L: {pnl_pct:+.1f}% (${pnl_dollar:+.0f})\n{reason}")
+            return True
+        log(f"  Option close failed {occ}: {r.status_code} {r.text[:100]}", "ERROR")
+    except Exception as e:
+        log(f"  Option close error {occ}: {e}", "ERROR")
+    return False
+
+
+def monitor_option_positions():
+    """Synthetic stop/target + theta time-stop + EOD close for long options."""
+    if not OPTIONS_ENABLED:
+        return
+    trades = load_trades()
+    if not any(t.get("is_option") and t.get("status") == "open" for t in trades):
+        return
+    now         = datetime.now(ET)
+    eod_enabled = os.environ.get("EOD_CLOSE", "true").lower() == "true"
+    is_eod      = eod_enabled and ((now.hour == 15 and now.minute >= 50) or
+                                   (now.hour == 16 and now.minute == 0))
+    updated = False
+    for trade in trades:
+        if not trade.get("is_option") or trade.get("status") != "open":
+            continue
+        sym  = trade["symbol"]
+        u_px = _get_underlying_price(sym)
+        decision = option_exit_decision(trade.get("direction", "long"), u_px,
+                                        trade.get("underlying_stop", 0),
+                                        trade.get("underlying_target", 0))
+        reason = None
+        if decision == "target":
+            reason = f"TARGET (underlying ${u_px:.2f})"
+        elif decision == "stop":
+            reason = f"STOP (underlying ${u_px:.2f})"
+        else:
+            try:
+                opened = datetime.fromisoformat(trade.get("opened_at", "")).astimezone(ET)
+                hrs = (now - opened).total_seconds() / 3600
+            except Exception:
+                hrs = 0
+            if hrs >= RISK.get("max_hold_hours", 6):
+                reason = f"TIME_EXIT ({hrs:.1f}h theta)"
+            elif is_eod:
+                reason = "EOD_CLOSE"
+        if reason and close_option_position(trade, reason):
+            updated = True
+    if updated:
+        save_trades(trades)
+
+
 def reprotect_positions():
     """
     FIX: Self-healing bracket protection.
@@ -2446,6 +2781,8 @@ def reprotect_positions():
     updated = False
 
     for pos in positions:
+        if pos.get("asset_class") == "us_option":
+            continue  # options can't be OCO-bracketed; handled by monitor_option_positions
         sym = pos.get("symbol")
         if not sym or sym in protected_syms:
             continue  # Already protected
@@ -2515,6 +2852,8 @@ def sync_positions_from_alpaca():
     for trade in trades:
         if trade.get("status") != "open":
             continue
+        if trade.get("is_option"):  # keyed by OCC, lifecycle in monitor_option_positions
+            continue
         sym = trade["symbol"]
         if sym not in alpaca_syms:
             trade["status"]     = "closed"
@@ -2578,6 +2917,8 @@ def check_stop_proximity():
     for trade in trades:
         if trade.get("status") != "open":
             continue
+        if trade.get("is_option"):  # synthetic stop tracked in monitor_option_positions
+            continue
         sym       = trade["symbol"]
         direction = trade.get("direction", "long")
         stop      = trade.get("stop_loss", 0)
@@ -2609,6 +2950,7 @@ def apply_trailing_stops():
     updated = False
     for trade in trades:
         if trade.get("status") != "open": continue
+        if trade.get("is_option"): continue  # options exit via monitor_option_positions
         sym         = trade["symbol"]
         entry       = trade.get("entry_price", 0)
         current     = trade.get("current_price", 0) or entry
@@ -2724,6 +3066,8 @@ def eod_close_all():
     )
     closed = 0
     for pos in positions:
+        if pos.get("asset_class") == "us_option":
+            continue  # options EOD handled by monitor_option_positions
         sym  = pos.get("symbol")
         qty  = int(float(pos.get("qty", 1)))
         side_held = pos.get("side", "long")
@@ -2757,6 +3101,7 @@ def check_time_based_exits():
     updated = False
     for trade in trades:
         if trade.get("status") != "open": continue
+        if trade.get("is_option"): continue  # options exit via monitor_option_positions
         opened_at = trade.get("opened_at", "")
         if not opened_at: continue
         try:
@@ -2821,6 +3166,10 @@ def run_position_monitor():
 
     # 2. FIX: Re-protect any positions missing bracket orders
     reprotect_positions()
+
+    # 2b. Options: synthetic stop/target/time/EOD exits (runs before the zero-
+    # equity-position early return so option-only accounts are still monitored).
+    monitor_option_positions()
 
     open_count = len(alpaca_positions)
     if open_count == 0:
@@ -3618,6 +3967,13 @@ def main():
             f"(real equity ${equity:,.2f}) | pos cap {SMALL_ACCT_MAX_POS_PCT:.0%}", "WARN")
         equity = SMALL_ACCT_EQUITY
 
+    if OPTIONS_ENABLED:
+        log(f"Options-only mode ON | {OPTIONS_MIN_DTE}-{OPTIONS_MAX_DTE} DTE | "
+            f"{OPTIONS_MONEYNESS.upper()} strike", "WARN")
+        if not options_trading_enabled():
+            log("Options NOT approved on this Alpaca account (level < 1) — option "
+                "orders will be rejected. Enable options in the Alpaca dashboard.", "ERROR")
+
     if check_daily_loss(equity):
         log("Kill switch active — no new trades today", "WARN")
         alert_kill_switch(
@@ -3696,7 +4052,10 @@ def main():
         alert_signal(scored)
         if scored.get("approved"):
             rps = abs(scored["entry"] - scored["stop"])
-            success, shares = execute_signal(scored, equity)
+            if OPTIONS_ENABLED:
+                success, shares = execute_option_signal(scored, equity)
+            else:
+                success, shares = execute_signal(scored, equity)
             if success:
                 risk_amt = shares * rps
                 alert_trade_open(scored, shares, risk_amt)
