@@ -33,6 +33,15 @@ FRED_KEY        = os.environ.get("FRED_API_KEY", "")
 ANTHROPIC_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
 PAPER_MODE        = os.environ.get("PAPER_MODE", "true").lower() == "true"
 ACCOUNT_EQUITY    = float(os.environ.get("ACCOUNT_EQUITY", "100000"))
+# Small-account experiment: if >0, size positions as if the account held this
+# much (default 0 = off, use real live equity). SMALL_ACCT_MAX_POS_PCT raises the
+# per-position cap so a single share of a mid-priced name can fit; tickers whose
+# 1 share still exceeds the cap are skipped rather than silently blowing it.
+SMALL_ACCT_EQUITY   = float(os.environ.get("SMALL_ACCT_EQUITY", "0") or 0)
+SMALL_ACCT_MAX_POS_PCT = float(os.environ.get("SMALL_ACCT_MAX_POS_PCT", "0.34"))
+# Fewer concurrent slots in small-account mode so total deployed capital stays
+# near 100% of the simulated equity instead of quietly using margin.
+SMALL_ACCT_MAX_POSITIONS = int(os.environ.get("SMALL_ACCT_MAX_POSITIONS", "3"))
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
@@ -2236,9 +2245,16 @@ def execute_signal(sig: dict, equity: float) -> tuple[bool, int]:
     blend     = 0.8 if len(feedback) >= 20 else 0.5
     risk_pct  = blend * kelly_pct + (1 - blend) * RISK["max_risk_per_trade_pct"]
     log(f"  Kelly: {kelly_pct:.2%} | Fixed: {RISK['max_risk_per_trade_pct']:.2%} | Blend: {risk_pct:.2%}")
-    shares = max(1, int(equity * risk_pct / rps))
-    shares = min(shares, int(equity * RISK["max_position_pct"] / sig["entry"]))
-    shares = max(1, int(shares * sig.get("size_adj", 1.0)))
+    pos_pct    = SMALL_ACCT_MAX_POS_PCT if SMALL_ACCT_EQUITY > 0 else RISK["max_position_pct"]
+    cap_shares = int(equity * pos_pct / sig["entry"])
+    if cap_shares < 1:
+        # 1 share already exceeds the position cap — cannot size this ticker sanely.
+        log(f"  SKIP {sig['symbol']}: 1 share @ ${sig['entry']:.2f} exceeds "
+            f"{pos_pct:.0%} cap of ${equity:,.0f} account")
+        return False, 0
+    risk_shares = int(equity * risk_pct / rps)
+    shares = max(1, min(risk_shares, cap_shares))
+    shares = max(1, min(cap_shares, int(shares * sig.get("size_adj", 1.0))))
     side   = "buy" if sig["direction"] == "long" else "sell"
     order  = {
         "symbol":        sig["symbol"],
@@ -3597,6 +3613,11 @@ def main():
     equity = acc.get("equity", ACCOUNT_EQUITY)
     log(f"Account equity: ${equity:,.2f} | Buying power: ${acc.get('buying_power',0):,.2f}")
 
+    if SMALL_ACCT_EQUITY > 0 and equity > SMALL_ACCT_EQUITY:
+        log(f"Small-account mode: sizing as ${SMALL_ACCT_EQUITY:,.2f} "
+            f"(real equity ${equity:,.2f}) | pos cap {SMALL_ACCT_MAX_POS_PCT:.0%}", "WARN")
+        equity = SMALL_ACCT_EQUITY
+
     if check_daily_loss(equity):
         log("Kill switch active — no new trades today", "WARN")
         alert_kill_switch(
@@ -3634,9 +3655,10 @@ def main():
 
     run_position_monitor()
 
+    max_pos = SMALL_ACCT_MAX_POSITIONS if SMALL_ACCT_EQUITY > 0 else RISK["max_open_positions"]
     open_positions = get_open_positions()
-    log(f"Open positions: {len(open_positions)}/{RISK['max_open_positions']}")
-    if len(open_positions) >= RISK["max_open_positions"]:
+    log(f"Open positions: {len(open_positions)}/{max_pos}")
+    if len(open_positions) >= max_pos:
         log("Max positions reached — not scanning for new entries")
         commit_state_to_github()
         return
@@ -3660,7 +3682,7 @@ def main():
         commit_state_to_github()
         return
 
-    slots  = RISK["max_open_positions"] - len(open_positions)
+    slots  = max_pos - len(open_positions)
     filled = 0
     for sig in signals:
         if filled >= slots:
