@@ -70,6 +70,9 @@ jobs:
           PAPER_MODE:         ${{ secrets.PAPER_MODE }}
           ACCOUNT_EQUITY:     ${{ secrets.ACCOUNT_EQUITY }}
           SMALL_ACCT_EQUITY:  '2000'   # experiment: size as a $2k account (0/unset = off)
+          OPTIONS_ENABLED:    'true'   # options-only mode: trade long calls/puts, not stock
+          OPTIONS_DRY_RUN:    'true'   # VERIFY FIRST: logs intended trades, sends no orders.
+                                       # Set to 'false' to trade live (paper) once dry-run logs look right.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
           DASHBOARD_URL:      ${{ secrets.DASHBOARD_URL }}
