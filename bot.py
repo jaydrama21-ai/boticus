@@ -3095,6 +3095,99 @@ def eod_close_all():
     log(f"EOD close complete: {closed}/{len(positions)} closed")
 
 
+def close_all_positions():
+    """
+    Flatten the account NOW, regardless of time-of-day / EOD window.
+
+    Triggered by RUN_MODE=close_all (manual workflow_dispatch). Cancels all
+    resting orders first (bracket stop/target legs would otherwise hold shares
+    and reject the market close), then market-closes every open position and
+    reconciles the local trades.json ledger the same way eod_close_all does.
+    Used to clear legacy oversized positions so the small-account ($2k) sizing
+    mode starts from a clean, flat slate.
+    """
+    log("=" * 60)
+    log("CLOSE-ALL: manual flatten requested (RUN_MODE=close_all)")
+
+    # 1. Cancel every resting order so bracket legs don't hold shares.
+    try:
+        rc = requests.delete(f"{ALPACA_BASE}/v2/orders",
+                             headers=ALPACA_HEADERS, timeout=10)
+        log(f"CLOSE-ALL: cancelled open orders (HTTP {rc.status_code})")
+    except Exception as e:
+        log(f"CLOSE-ALL: order-cancel error: {e}", "ERROR")
+
+    positions = get_open_positions()
+    if not positions:
+        log("CLOSE-ALL: no open positions — account already flat")
+        _tg("Close-All\nAccount already flat — no positions to close.")
+        # Still reconcile any stale 'open' ledger rows.
+        trades = load_trades()
+        stale = [t for t in trades if t.get("status") == "open"]
+        if stale:
+            for t in stale:
+                t["status"]       = "closed"
+                t["close_reason"] = "CLOSE_ALL_RECONCILE"
+                t["closed_at"]    = datetime.now(ET).isoformat()
+            save_trades(trades)
+            log(f"CLOSE-ALL: reconciled {len(stale)} stale open ledger row(s)")
+        commit_state_to_github()
+        return
+
+    log(f"CLOSE-ALL: closing {len(positions)} open position(s)...")
+    _tg(f"Close-All requested\nFlattening {len(positions)} open position(s) now.")
+
+    closed = 0
+    trades = load_trades()
+    for pos in positions:
+        sym = pos.get("symbol")
+        # Options: close via the ledger (needs contracts + OCC symbol).
+        if pos.get("asset_class") == "us_option":
+            match = next((t for t in trades if t.get("is_option")
+                          and t.get("status") == "open"
+                          and t.get("option_symbol") == sym), None)
+            if match and close_option_position(match, "CLOSE_ALL"):
+                closed += 1
+            else:
+                log(f"CLOSE-ALL: could not close option {sym} via ledger", "WARN")
+            continue
+
+        qty        = int(float(pos.get("qty", 1)))
+        side_held  = pos.get("side", "long")
+        close_side = "sell" if side_held == "long" else "buy"
+        unreal_pct = float(pos.get("unrealized_plpc", 0)) * 100
+        unreal_pl  = float(pos.get("unrealized_pl", 0))
+        if close_position_market(sym, qty, close_side,
+                                 f"CLOSE_ALL (P&L: {unreal_pct:+.1f}%)"):
+            closed += 1
+            _tg(f"Closed: {sym}\nP&L: {unreal_pct:+.1f}% (${unreal_pl:+.2f})")
+            for trade in trades:
+                if trade.get("symbol") == sym and trade.get("status") == "open" \
+                        and not trade.get("is_option"):
+                    trade["status"]       = "closed"
+                    trade["close_reason"] = "CLOSE_ALL"
+                    trade["closed_at"]    = datetime.now(ET).isoformat()
+                    trade["closed_price"] = float(pos.get("current_price", 0))
+                    trade["pnl_pct"]      = round(unreal_pct, 2)
+                    trade["pnl"]          = round(unreal_pl, 2)
+                    log_trade_outcome(trade)
+
+    # Reconcile any remaining stale 'open' ledger rows with no broker position.
+    broker_syms = {p.get("symbol") for p in positions}
+    for trade in trades:
+        if trade.get("status") == "open" and trade.get("symbol") not in broker_syms \
+                and trade.get("option_symbol") not in broker_syms:
+            trade["status"]       = "closed"
+            trade["close_reason"] = "CLOSE_ALL_RECONCILE"
+            trade["closed_at"]    = datetime.now(ET).isoformat()
+
+    save_trades(trades)
+    log(f"CLOSE-ALL complete: {closed}/{len(positions)} closed")
+    _tg(f"Close-All complete\n{closed}/{len(positions)} position(s) closed. "
+        f"Account is flat — $2k sizing starts fresh next scan.")
+    commit_state_to_github()
+
+
 def check_time_based_exits():
     trades = load_trades()
     now    = datetime.now(ET)
@@ -3859,6 +3952,10 @@ def main():
         fetch_insider_filings(get_watchlist())
         fetch_unusual_options_flow()
         fetch_congress_trades()
+
+    if mode == "close_all":
+        close_all_positions()
+        return
 
     if mode == "dashboard":
         generate_dashboard()
