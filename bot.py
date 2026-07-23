@@ -134,9 +134,21 @@ HEADLINE_SENSITIVE = [
 ]
 
 OPTIONS_TICKERS = [
-    "SPY", "QQQ", "AAPL", "NVDA", "TSLA",
-    "MSFT", "META", "AMD", "PLTR", "IWM",
-    "XBI", "GLD", "TLT", "EEM", "MDY",
+    # Index / broad ETFs
+    "SPY", "QQQ", "IWM", "MDY", "EEM",
+    # Mega-cap tech
+    "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "TSLA", "AMD", "PLTR",
+    # Financials
+    "JPM", "BAC", "GS", "MS", "C", "COIN", "HOOD",
+    # Energy
+    "XOM", "CVX",
+    # Healthcare
+    "UNH", "LLY", "ABBV", "MRNA",
+    # High-liquidity growth
+    "CRWD", "PANW", "ARM", "SMCI", "RBLX",
+    # Sector / commodity ETFs
+    "XLK", "XLF", "XLE", "XLV", "XLI", "XLP", "XLU", "XRT", "XBI",
+    "GLD", "SLV", "USO", "TLT",
 ]
 
 _ACTIVE_WATCHLIST = None
