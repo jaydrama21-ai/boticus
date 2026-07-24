@@ -2345,20 +2345,67 @@ def check_daily_loss(equity: float) -> bool:
 # POSITION MONITOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-def close_position_market(symbol: str, qty: int, side: str, reason: str) -> bool:
+def cancel_open_orders_for_symbol(symbol: str) -> int:
+    """
+    Cancel all open orders on a symbol so its shares are released from
+    'held_for_orders'. Returns the number of orders cancelled. Used before a
+    forced close when a GTC OCO bracket is holding 100% of the position (a
+    plain market close otherwise 403s with available=0 / code 40310000).
+    """
+    cancelled = 0
     try:
-        r = requests.post(
+        r = requests.get(
+            f"{ALPACA_BASE}/v2/orders",
+            headers=ALPACA_HEADERS,
+            params={"status": "open", "symbols": symbol, "limit": 100},
+            timeout=8
+        )
+        if not r.ok:
+            log(f"  cancel-orders {symbol}: fetch failed {r.status_code}", "WARN")
+            return 0
+        for o in r.json():
+            if o.get("symbol") != symbol:
+                continue
+            oid = o.get("id")
+            if not oid:
+                continue
+            try:
+                dc = requests.delete(f"{ALPACA_BASE}/v2/orders/{oid}",
+                                     headers=ALPACA_HEADERS, timeout=8)
+                if dc.status_code in (200, 204):
+                    cancelled += 1
+            except Exception as e:
+                log(f"  cancel-orders {symbol}: {e}", "WARN")
+    except Exception as e:
+        log(f"  cancel-orders {symbol}: {e}", "WARN")
+    return cancelled
+
+
+def close_position_market(symbol: str, qty: int, side: str, reason: str) -> bool:
+    def _submit():
+        return requests.post(
             f"{ALPACA_BASE}/v2/orders",
             headers=ALPACA_HEADERS,
             json={"symbol": symbol, "qty": str(abs(qty)),
                   "side": side, "type": "market", "time_in_force": "day"},
             timeout=10
         )
+    try:
+        r = _submit()
         if r.status_code in (200, 201):
             log(f"  CLOSED {symbol} x{qty} — {reason}")
             return True
-        else:
-            log(f"  Close failed {symbol}: {r.status_code} {r.text[:100]}", "ERROR")
+        # Shares fully held by an open bracket/OCO — release them and retry once.
+        if r.status_code == 403 and ("held_for_orders" in r.text or "40310000" in r.text):
+            n = cancel_open_orders_for_symbol(symbol)
+            log(f"  {symbol} shares held by {n} open order(s) — cancelled, retrying close", "WARN")
+            if n:
+                time.sleep(1.5)  # let Alpaca release held_for_orders
+                r = _submit()
+                if r.status_code in (200, 201):
+                    log(f"  CLOSED {symbol} x{qty} — {reason} (after order cancel)")
+                    return True
+        log(f"  Close failed {symbol}: {r.status_code} {r.text[:100]}", "ERROR")
     except Exception as e:
         log(f"  Close error {symbol}: {e}", "ERROR")
     return False
