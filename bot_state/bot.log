@@ -32630,3 +32630,282 @@ Run complete: 0 new position(s) opened
 [11:50:32] INFO    SHA check auto_adjust_latest.json: 200
 [11:50:33] INFO    Commit auto_adjust_latest.json: 200
 [11:50:33] INFO    Committed auto_adjust_latest.json to repo
+[11:50:33] INFO    SHA check bot.log: 200
+[11:50:35] INFO    Commit bot.log: 200
+[11:50:35] INFO    Committed bot.log to repo
+[11:50:45] INFO    SHA check watchlist.json: 200
+[11:50:46] INFO    Commit watchlist.json: 200
+[11:50:46] INFO    Committed watchlist.json to repo
+[11:50:46] INFO    SHA check research_digest.json: 200
+[11:50:47] INFO    Commit research_digest.json: 200
+[11:50:47] INFO    Committed research_digest.json to repo
+[11:50:47] INFO    SHA check fed_insights.json: 200
+[11:50:48] INFO    Commit fed_insights.json: 200
+[11:50:48] INFO    Committed fed_insights.json to repo
+[11:50:48] INFO    SHA check tg_offset.json: 200
+[11:50:49] INFO    Commit tg_offset.json: 200
+[11:50:49] INFO    Committed tg_offset.json to repo
+[11:50:49] INFO    Skip paused.json — not found at bot_state/paused.json
+[11:50:49] INFO    SHA check near_miss.json: 200
+[11:50:50] INFO    Commit near_miss.json: 200
+[11:50:50] INFO    Committed near_miss.json to repo
+[11:50:50] INFO    SHA check last_run.json: 200
+[11:50:51] INFO    Commit last_run.json: 200
+[11:50:51] INFO    Committed last_run.json to repo
+[11:50:51] INFO    Skip risk_overrides.json — not found at bot_state/risk_overrides.json
+[11:50:51] INFO    Skip risk_overrides_pending.json — not found at bot_state/risk_overrides_pending.json
+[11:50:51] INFO    Skip risk_overrides_prev.json — not found at bot_state/risk_overrides_prev.json
+[11:50:51] INFO  State commit complete: 11/15 files
+[12:44:57] INFO  ============================================================
+[12:44:57] INFO  TRADING BOT RUN | 2026-08-03 12:44 ET | open | mode=scan
+[12:44:57] INFO  Paper mode: True | Telegram: yes
+[12:44:57] INFO  ============================================================
+[12:44:57] INFO  Fetching macro data...
+[12:45:01] INFO    Futures: ES=+0.00% NQ=+0.00% Gold=+0.00% -> NEUTRAL
+[12:45:01] INFO    Fed:3.63% CPI:3.7% VIX:15.6(normal) Regime:ranging
+[12:45:01] INFO    Scanning StockTwits sentiment...
+[12:45:13] INFO    Fear & Greed: 45 (neutral) +0.0 from yesterday
+[12:45:13] INFO    Market breadth: 50% above SMA50 — neutral
+[12:45:13] INFO  Fetching price data for 62 tickers...
+[12:45:13] INFO    MACRO TRIGGER on SPY: trump, trump, oil
+[12:45:13] INFO    MACRO ALERT on SPY: trump, trump, oil
+[12:45:13] INFO    SPY    $ 756.45 (+1.3%)  RSI: 59.0  ATR:1.20%  Vol:1.2x  up NEG
+[12:45:14] INFO    MACRO TRIGGER on QQQ: trump, oil, trump
+[12:45:14] INFO    MACRO ALERT on QQQ: trump, oil, trump
+[12:45:14] INFO    QQQ    $ 698.38 (+1.5%)  RSI: 49.4  ATR:2.17%  Vol:1.1x  dn NEG
+[12:45:14] INFO    IWM    $ 295.39 (+1.4%)  RSI: 53.6  ATR:1.53%  Vol:1.1x  up
+[12:45:15] INFO    DIA    $ 529.30 (+1.0%)  RSI: 59.1  ATR:1.17%  Vol:1.6x  up
+[12:45:15] INFO    MDY    $ 691.17 (+0.7%)  RSI: 52.7  ATR:1.28%  Vol:0.9x  up
+[12:45:16] INFO    VXX    $  21.00 (-1.2%)  RSI: 41.6  ATR:4.76%  Vol:1.1x  dn
+[12:45:16] INFO    EEM    $  64.03 (-0.1%)  RSI: 47.1  ATR:2.50%  Vol:1.1x  dn
+[12:45:17] INFO    EFA    $ 105.79 (+0.2%)  RSI: 58.6  ATR:1.29%  Vol:0.8x  up
+[12:45:17] INFO    FXI    $  36.49 (-0.0%)  RSI: 72.0  ATR:1.41%  Vol:0.7x  ->
+[12:45:18] INFO    EWJ    $  92.71 (+0.3%)  RSI: 52.0  ATR:1.94%  Vol:1.1x  up
+[12:45:18] INFO    IEUR   $  76.86 (+0.2%)  RSI: 60.9  ATR:1.21%  Vol:0.6x  up
+[12:45:19] INFO    AAPL   $ 306.50 (-0.8%)  RSI: 41.9  ATR:3.21%  Vol:1.3x  dn
+[12:45:19] INFO    MACRO TRIGGER on MSFT: trump, iran
+[12:45:19] INFO    MACRO ALERT on MSFT: trump, iran
+[12:45:19] INFO    MSFT   $ 489.50 (+5.3%)  RSI: 78.5  ATR:3.43%  Vol:2.0x  -> NEG
+[12:45:20] INFO    MACRO TRIGGER on NVDA: semiconductor, semiconductor
+[12:45:20] INFO    MACRO ALERT on NVDA: semiconductor, semiconductor
+[12:45:20] INFO    NVDA   $ 207.10 (+3.2%)  RSI: 53.4  ATR:3.72%  Vol:1.0x  up NEG
+[12:45:20] INFO    GOOGL  $ 375.87 (+5.5%)  RSI: 61.9  ATR:3.42%  Vol:1.4x  up
+[12:45:21] INFO    META   $ 595.67 (+7.0%)  RSI: 48.2  ATR:4.41%  Vol:1.6x  dn
+[12:45:22] INFO    AMZN   $ 284.87 (+4.9%)  RSI: 72.5  ATR:3.49%  Vol:2.5x  up
+[12:45:22] INFO    TSLA   $ 320.90 (+3.1%)  RSI: 36.3  ATR:5.18%  Vol:1.0x  dn
+[12:45:23] INFO    MACRO TRIGGER on AMD: trump, iran
+[12:45:23] INFO    MACRO ALERT on AMD: trump, iran
+[12:45:23] INFO    AMD    $ 480.69 (+1.0%)  RSI: 46.0  ATR:8.26%  Vol:0.9x  dn NEG
+[12:45:23] INFO    MACRO TRIGGER on PLTR: oil, trump, iran
+[12:45:23] INFO    MACRO ALERT on PLTR: oil, trump, iran
+[12:45:23] INFO    PLTR   $ 125.64 (+2.1%)  RSI: 47.7  ATR:5.03%  Vol:1.3x  dn NEG
+[12:45:24] INFO    COIN   $ 150.20 (+2.7%)  RSI: 43.0  ATR:7.07%  Vol:1.4x  dn
+[12:45:24] INFO    JPM    $ 352.58 (+0.2%)  RSI: 61.3  ATR:2.03%  Vol:0.4x  up
+[12:45:25] INFO    BAC    $  61.88 (-0.1%)  RSI: 61.9  ATR:1.79%  Vol:0.6x  up
+[12:45:26] INFO    GS     $1013.78 (-0.5%)  RSI: 44.2  ATR:3.72%  Vol:0.8x  dn
+[12:45:26] INFO    MS     $ 209.73 (-0.3%)  RSI: 46.2  ATR:3.19%  Vol:0.6x  dn
+[12:45:27] INFO    C      $ 131.81 (-0.5%)  RSI: 45.8  ATR:2.77%  Vol:0.5x  dn
+[12:45:28] INFO    MACRO TRIGGER on XOM: trump, oil
+[12:45:28] INFO    MACRO ALERT on XOM: trump, oil
+[12:45:28] INFO    XOM    $ 155.13 (-0.2%)  RSI: 62.4  ATR:2.38%  Vol:0.7x  up NEG
+[12:45:28] INFO    MACRO TRIGGER on CVX: trump, oil, oil
+[12:45:28] INFO    MACRO ALERT on CVX: trump, oil, oil
+[12:45:28] INFO    CVX    $ 194.51 (-1.2%)  RSI: 62.6  ATR:2.16%  Vol:1.1x  up NEG
+[12:45:30] INFO    UNH    $ 415.70 (+0.3%)  RSI: 48.0  ATR:2.82%  Vol:0.4x  up
+[12:45:31] INFO    LLY    $1115.60 (-2.9%)  RSI: 40.3  ATR:3.37%  Vol:1.2x  dn
+[12:45:31] INFO    ABBV   $ 245.58 (-2.1%)  RSI: 46.4  ATR:2.84%  Vol:0.8x  up
+[12:45:32] INFO    XLK    $ 177.55 (+1.3%)  RSI: 49.0  ATR:3.14%  Vol:1.0x  dn
+[12:45:32] INFO    XLF    $  57.09 (+0.3%)  RSI: 63.4  ATR:1.24%  Vol:0.9x  up
+[12:45:33] INFO    XLE    $  58.91 (-1.1%)  RSI: 59.0  ATR:2.05%  Vol:0.8x  up
+[12:45:33] INFO    XLV    $ 161.65 (-0.6%)  RSI: 52.9  ATR:1.79%  Vol:1.2x  up
+[12:45:34] INFO    XBI    $ 146.76 (-0.2%)  RSI: 43.5  ATR:2.98%  Vol:1.0x  up
+[12:45:34] INFO    XRT    $  91.10 (+1.5%)  RSI: 59.9  ATR:2.03%  Vol:0.9x  up
+[12:45:35] INFO    XLU    $  44.36 (+0.0%)  RSI: 40.8  ATR:1.64%  Vol:1.2x  dn
+[12:45:36] INFO    XLI    $ 181.71 (+1.0%)  RSI: 54.0  ATR:1.72%  Vol:1.2x  up
+[12:45:36] INFO    XLP    $  84.79 (-0.3%)  RSI: 50.5  ATR:1.83%  Vol:1.2x  up
+[12:45:36] INFO    TLT    $  82.22 (-0.0%)  RSI: 31.4  ATR:0.73%  Vol:1.6x  dn
+[12:45:37] INFO    MACRO TRIGGER on GLD: china
+[12:45:37] INFO    MACRO ALERT on GLD: china
+[12:45:37] INFO    GLD    $ 370.44 (-0.3%)  RSI: 44.9  ATR:1.86%  Vol:1.0x  dn NEG
+[12:45:38] INFO    SLV    $  52.08 (-0.5%)  RSI: 43.2  ATR:3.65%  Vol:1.0x  dn
+[12:45:38] INFO    MACRO TRIGGER on USO: iran, trump, oil
+[12:45:38] INFO    MACRO ALERT on USO: iran, trump, oil
+[12:45:38] INFO    USO    $ 121.46 (-6.0%)  RSI: 48.3  ATR:4.76%  Vol:1.4x  dn NEG
+[12:45:38] INFO    UUP    $  28.17 (-0.0%)  RSI: 41.5  ATR:0.45%  Vol:1.2x  dn
+[12:45:39] INFO    IJR    $ 147.43 (+1.4%)  RSI: 59.2  ATR:1.31%  Vol:1.1x  up
+[12:45:39] INFO    NTLA   $  10.65 (-0.2%)  RSI: 32.7  ATR:7.72%  Vol:0.7x  dn
+[12:45:40] INFO    LDOS   $ 118.02 (+2.1%)  RSI: 61.1  ATR:3.27%  Vol:0.7x  ->
+[12:45:40] INFO    ALGM   $  40.87 (-1.5%)  RSI: 36.0  ATR:10.11%  Vol:0.8x  dn
+[12:45:41] INFO    RBLX   $  37.29 (+4.7%)  RSI: 30.5  ATR:9.99%  Vol:2.4x  dn
+[12:45:41] INFO    SNAP   $   5.01 (+6.7%)  RSI: 59.8  ATR:4.30%  Vol:1.7x  ->
+[12:45:42] INFO    RARE   $  24.81 (-0.4%)  RSI: 33.5  ATR:6.01%  Vol:0.8x  dn
+[12:45:42] INFO    RKLB   $  69.44 (+6.9%)  RSI: 42.9  ATR:9.78%  Vol:1.1x  dn
+[12:45:43] INFO    SMCI   $  28.53 (+0.5%)  RSI: 49.3  ATR:8.31%  Vol:0.6x  dn
+[12:45:44] INFO    HOOD   $  91.11 (+5.3%)  RSI: 42.0  ATR:7.07%  Vol:1.0x  dn
+[12:45:45] INFO    MRNA   $  56.11 (+2.4%)  RSI: 43.2  ATR:7.01%  Vol:0.8x  dn
+[12:45:46] INFO    ALNY   $ 216.60 (+5.4%)  RSI: 29.5  ATR:7.85%  Vol:1.7x  dn
+[12:45:46] INFO    AMC    $   2.85 (+0.9%)  RSI: 69.2  ATR:8.06%  Vol:1.7x  up
+[12:45:47] INFO    MACRO TRIGGER on SOXL: semiconductor
+[12:45:47] INFO    MACRO ALERT on SOXL: semiconductor
+[12:45:47] INFO    SOXL   $ 113.60 (-1.0%)  RSI: 39.4  ATR:23.85%  Vol:1.6x  dn NEG
+[12:45:47] INFO    ARM    $ 236.80 (-1.2%)  RSI: 36.9  ATR:10.98%  Vol:1.1x  dn
+[12:45:48] INFO    QCOM   $ 148.84 (+0.8%)  RSI: 30.1  ATR:6.35%  Vol:1.1x  dn
+[12:45:49] INFO  Account equity: $927,119.85 | Buying power: $3,708,479.40
+[12:45:49] WARN  Small-account mode: sizing as $2,000.00 (real equity $927,119.85) | pos cap 34%
+[12:45:49] WARN  Options-only mode ON | 7-21 DTE | ITM strike
+[12:45:49] INFO  Macro alert already sent today — skipping
+[12:45:49] INFO  
+-- Position Monitor ------------------------------------------
+[12:45:49] INFO  Syncing positions from Alpaca...
+[12:45:49] INFO  Position sync: no changes
+[12:45:49] INFO  No open positions — monitor complete
+[12:45:49] INFO  Open positions: 0/3
+[12:45:49] INFO  Scanning 62 tickers | open | Regime:ranging | VIX:15.6
+[12:45:49] INFO    up SIGNAL: DIA [94] entry:$529.30 stop:$518.12 target:$551.03 R/R:1.94
+[12:45:50] INFO    up SIGNAL: EFA [86] entry:$105.79 stop:$103.34 target:$110.55 R/R:1.94
+[12:45:50] INFO    up SIGNAL: IEUR [86] entry:$76.86 stop:$75.18 target:$80.12 R/R:1.94
+[12:45:50] INFO    GOOGL LONG rejected: 1H overbought: RSI 87.8
+[12:45:51] INFO    AMZN LONG rejected: 1H overbought: RSI 82.7
+[12:45:51] INFO    up SIGNAL: JPM [75] entry:$352.58 stop:$339.67 target:$377.67 R/R:1.94
+[12:45:51] INFO    up SIGNAL: BAC [76] entry:$61.88 stop:$59.89 target:$65.76 R/R:1.95
+[12:45:51] INFO    up SIGNAL: XOM [94] entry:$155.13 stop:$148.48 target:$168.06 R/R:1.94
+[12:45:52] INFO    up SIGNAL: CVX [94] entry:$194.51 stop:$186.94 target:$209.24 R/R:1.95
+[12:45:52] INFO    up SIGNAL: XLF [76] entry:$57.09 stop:$55.82 target:$59.56 R/R:1.94
+[12:45:52] INFO    up SIGNAL: XLE [79] entry:$58.91 stop:$56.73 target:$63.15 R/R:1.94
+[12:45:53] INFO    up SIGNAL: XRT [81] entry:$91.10 stop:$87.78 target:$97.56 R/R:1.95
+[12:45:53] INFO    up SIGNAL: IJR [96] entry:$147.43 stop:$143.96 target:$154.18 R/R:1.95
+[12:45:53] INFO  Scan complete: 11 signal(s) | 7 near-misses
+[12:45:53] INFO  Near-misses: AMZN 78 (1H: 1H overbought: RSI 82.7) | GOOGL 78 (1H: 1H overbought: RSI 87.8) | AMC 76 (ATR 8.06% (max 5.00%))
+[12:45:53] INFO  Telegram sent (199 chars) attempt 1
+[12:45:53] INFO  AI scoring IJR (LONG)...
+[12:46:09] INFO    REJECTED LONG: score=42 skip conf=medium size=0.0x
+[12:46:09] INFO    Pattern memory shows 35% win rate with 5 consecutive losses, and critically, losses have HIGHER criteria scores (avg 97) than wins (avg 88) — this signal at 96 falls squarely in the loss zone. Extreme fear sentiment (F&G 25) combined with Fed hawkish posture (Barr's 'financial boom' framing, higher-for-longer rates) creates a hostile macro backdrop for small caps which are most rate-sensitive. While the rotation into cyclicals and small caps is real (IJR +1.36%, IWM +1.4%), the pattern memory is screaming that high-scoring signals in ranging regimes are losing trades.
+[12:46:09] INFO    Pattern: Criteria score of 96 matches the average losing trade score of 97 almost exactly — the system's scoring is inversely correlated with outcomes, demanding a full recalibration before taking high-score signals.
+[12:46:09] INFO    Risks: ['5 consecutive losses — system is miscalibrated, losses avg criteria score 97 vs this signal at 96', 'Extreme fear F&G at 25 — small caps get crushed in fear environments', 'Fed hawkish posture with higher-for-longer rates disproportionately hurts small caps', 'RSI 59.2 approaching overbought territory for a ranging regime', 'NFP report Thursday with compressed reaction window (July 4 Friday) adds binary event risk']
+[12:46:09] WARN    FLAG: caution
+[12:46:09] INFO    Tokens: 2717in / 437out
+[12:46:10] INFO  Telegram sent (266 chars) attempt 1
+[12:46:10] INFO  AI scoring XOM (LONG)...
+[12:46:26] INFO    REJECTED LONG: score=32 skip conf=medium size=0.0x
+[12:46:26] INFO    Despite strong uptrend and decent R/R, multiple critical factors argue against this trade. Pattern memory shows 35% win rate with 5 consecutive losses and notably higher criteria scores on losses (97 avg) — this signal at 94 fits squarely in the loss profile. Oil is getting crushed today (USO -6.0%, headline score -100) on Iran ceasefire/peace hopes driving massive geopolitical risk premium unwind, plus Trump explicitly pressuring oil executives to lower prices. XOM's -0.20% today understates the energy sector headwind (XLE -1.1%, CVX -1.2%). Volume ratio at 0.74x shows weak participation in the uptrend. Fear & Greed at 25 (extreme fear) combined with a clear sector rotation OUT of energy into tech/cyclicals today makes this a fight-the-tape trade.
+[12:46:26] INFO    Pattern: Signals scoring 90+ have been consistent losers in this regime — the system is systematically miscalibrating high-score setups, and this oil long against a sector-wide selloff is a textbook example.
+[12:46:26] INFO    Risks: ['Oil sector in freefall — USO -6.0%, Iran ceasefire removing geopolitical premium, Trump pressuring lower oil prices', 'Pattern memory 5 consecutive losses with avg loss criteria score of 97 — this signal at 94 matches loss profile perfectly', 'Volume ratio 0.74x indicates weak buying conviction, sector rotation clearly favoring tech/cyclicals over energy', 'Extreme fear sentiment (25/100) plus Fed higher-for-longer posture creates hostile macro backdrop']
+[12:46:26] WARN    FLAG: caution
+[12:46:26] INFO    Tokens: 2734in / 461out
+[12:46:26] INFO  Telegram sent (284 chars) attempt 1
+[12:46:26] INFO  AI scoring DIA (LONG)...
+[12:46:44] INFO    REJECTED LONG: score=52 skip conf=medium size=0.0x
+[12:46:44] INFO    Pattern memory is devastating: 35% win rate, 5 consecutive losses, and critically, losses average a criteria score of 97 — this signal scores 94, placing it squarely in the loss zone. Despite strong technicals (uptrend, good R/R, volume confirmation), the learned pattern explicitly warns that high-scoring criteria trades have been losing trades, indicating systematic miscalibration. Extreme fear sentiment (25/100), Fed hawkish posture (higher-for-longer), and a seasonality warning about August/September volatility all add headwinds. While the DIA rotation thesis is legitimate (Dow at ATH, cyclical rotation from tech), the 5-loss streak demands capital preservation over signal chasing.
+[12:46:44] INFO    Pattern: Signals scoring 94-97 on criteria have been systematically losing — the scoring model is miscalibrated and high scores should be treated as contrarian warnings until win rate recovers above 50%.
+[12:46:44] INFO    Risks: ['5 consecutive losses with average loss criteria score of 97 — this signal at 94 fits the losing pattern exactly', 'Extreme fear sentiment (25/100) conflicts with taking new long exposure', "Fed explicitly framing current conditions as a 'financial boom' with deregulation resistance — hawkish backdrop", 'NFP report next Thursday with compressed July 4 reaction window creates event risk', 'Headline score of 0 with seasonality warning about imminent volatility']
+[12:46:44] WARN    FLAG: caution
+[12:46:44] INFO    Tokens: 2749in / 464out
+[12:46:44] INFO  Telegram sent (266 chars) attempt 1
+[12:46:44] INFO  AI scoring CVX (LONG)...
+[12:47:02] INFO    REJECTED LONG: score=35 skip conf=medium size=0.0x
+[12:47:02] INFO    Despite strong uptrend and decent R/R, multiple red flags converge: pattern memory shows 35% win rate with 5 consecutive losses and critically, losses average criteria score of 97 — this signal scores 94, squarely in the loss zone. CVX is down -1.18% today while broad market rallies (+1.3% SPY), showing relative weakness. Oil is getting crushed with USO -6.0% on Iran ceasefire/peace hopes driving oil prices lower, and Trump explicitly demanding lower oil prices from executives. XLE sector also weak at -1.1%. The energy fundamental backdrop is bearish near-term with potential Iranian oil supply normalization.
+[12:47:02] INFO    Pattern: Signals scoring 90+ have paradoxically produced consistent losses in this regime — the system's high-criteria trades are the ones that fail, suggesting the scoring model is miscalibrated and should not be trusted at face value.
+[12:47:02] INFO    Risks: ['Pattern memory: 5 consecutive losses, 35% WR, and losses cluster at criteria scores ~97 — this signal at 94 fits the loss profile', 'USO -6.0% today signals major oil weakness; Iran ceasefire reducing geopolitical risk premium crushes energy names', 'CVX underperforming broad market significantly (-1.18% vs SPY +1.3%) showing sector rotation OUT of energy', 'Trump publicly pressuring oil executives to lower prices — political headwind for energy margins', 'Extreme fear sentiment (F&G 25) combined with sector-specific headwinds', 'Headline score neutral at 0 despite analyst upgrades, suggesting mixed signals being priced in']
+[12:47:02] WARN    FLAG: caution
+[12:47:02] INFO    Tokens: 2832in / 470out
+[12:47:03] INFO  Telegram sent (289 chars) attempt 1
+[12:47:03] INFO  AI scoring IEUR (LONG)...
+[12:47:18] INFO    REJECTED LONG: score=35 skip conf=medium size=0.0x
+[12:47:18] INFO    Pattern memory shows 35% win rate with 5 consecutive losses, and critically, losing trades have HIGHER criteria scores (97) than winners (88) — this signal at 86 total score falls right in the danger zone. IEUR is in an uptrend 2.8% above SMA50 with decent RSI at 60.9, but volume ratio at 0.55x is very weak, indicating no conviction behind the move. Extreme fear sentiment (F&G 25), Fed hawkish posture (higher-for-longer rates), and neutral futures provide no tailwind for an international equity long.
+[12:47:18] INFO    Pattern: With a 35% win rate and losses clustering at high criteria scores, this 86-score signal in a ranging regime with weak volume and extreme fear is statistically more likely to be another loss — the system needs recalibration before taking marginal setups.
+[12:47:18] INFO    Risks: ['5 consecutive losses — pattern memory demands extreme selectivity', 'Volume ratio 0.55x is critically low — no institutional participation', 'Extreme fear sentiment (25/100) inconsistent with taking new longs', "Fed hawkish stance with Barr explicitly calling current conditions a 'financial boom'", 'Losing trades averaged criteria score of 97 vs winners at 88 — high scores are NOT predictive of wins', 'Headline score neutral at 0 provides zero catalyst', 'NFP report next week creates event risk with compressed holiday reaction window']
+[12:47:18] WARN    FLAG: caution
+[12:47:18] INFO    Tokens: 2704in / 432out
+[12:47:19] INFO  Telegram sent (264 chars) attempt 1
+[12:47:19] INFO  AI scoring EFA (LONG)...
+[12:47:35] INFO    REJECTED LONG: score=42 skip conf=medium size=0.0x
+[12:47:35] INFO    Pattern memory shows 35% win rate with 5 consecutive losses, and critically, losses have HIGHER criteria scores (avg 97) than wins (avg 88) — this signal at 86 total score is actually closer to win territory but the system is clearly miscalibrated. Extreme fear sentiment (F&G 25), Fed hawkish posture (higher-for-longer rates), and neutral futures all argue against initiating a new long position. While EFA's uptrend and 2.3% above SMA50 with reasonable RSI look technically sound, the volume ratio at 0.82x is weak and headline score is flat at 0.
+[12:47:35] INFO    Pattern: With 5 straight losses and losses scoring higher on criteria than wins, this system needs a hard reset — the scoring model is inversely correlated with outcomes, meaning high-scoring setups are actually the ones to avoid until recalibrated.
+[12:47:35] INFO    Risks: ['5 consecutive losses — pattern memory demands extreme selectivity', '35% win rate means system is losing money; losses average -9.5%', 'Extreme fear sentiment (25/100) suggests risk-off environment', "Fed hawkish signals: Barr's 'financial boom' warning, higher-for-longer rate posture", 'Volume ratio 0.82x below average — no conviction behind move', 'Headline score is zero — no catalyst to drive upside', 'EEM flat and FXI overbought (RSI 72) suggest international equities broadly weak']
+[12:47:35] WARN    FLAG: caution
+[12:47:35] INFO    Tokens: 2703in / 447out
+[12:47:35] INFO  Telegram sent (266 chars) attempt 1
+[12:47:35] INFO  AI scoring XRT (LONG)...
+[12:47:52] INFO    REJECTED LONG: score=38 skip conf=medium size=0.0x
+[12:47:52] INFO    Pattern memory shows 35% win rate with 5 consecutive losses, and critically, losing trades average a criteria score of 97 vs 81 for this signal — meaning high-scoring signals have been the biggest losers. XRT is 5% above SMA50 which is extended, trading below VWAP, and volume ratio is only 0.93x showing no conviction. Extreme fear sentiment (F&G 25) combined with Fed higher-for-longer posture and Barr's 'financial boom' warning create headwinds for consumer discretionary retail.
+[12:47:52] INFO    Pattern: With 5 straight losses and losing trades scoring higher on criteria than winners, the system is demonstrably broken — taking another signal without recalibration is capital destruction, not trading.
+[12:47:52] INFO    Risks: ['5 consecutive losses — system is clearly miscalibrated and needs reset, not more trades', "Losing trades averaged criteria score 97 vs wins at 88 — this 81 score doesn't help, pattern shows high scores still lose", 'Below VWAP signals intraday weakness despite headline green', 'Extreme fear at 25/100 — retail sentiment deeply negative', "Fed hawkish posture with Barr explicitly calling current conditions a 'financial boom' — bearish for rate-sensitive consumer spending", 'Volume ratio 0.93x shows no institutional participation in the move', 'NFP report Thursday creates binary event risk with compressed reaction window before July 4 closure']
+[12:47:52] WARN    FLAG: caution
+[12:47:52] INFO    Tokens: 2721in / 437out
+[12:47:54] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:47:54] WARN  Telegram retry 1/3 in 1s...
+[12:47:55] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:47:55] WARN  Telegram retry 2/3 in 2s...
+[12:47:58] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:47:58] WARN  Telegram retry 3/3 in 4s...
+[12:48:02] ERROR Telegram failed after 3 attempts — chunk 1/1
+[12:48:02] INFO  AI scoring XLE (LONG)...
+[12:48:16] INFO    REJECTED LONG: score=32 skip conf=medium size=0.0x
+[12:48:16] INFO    Pattern memory shows 35% win rate with 5 consecutive losses, and critically, losses have HIGHER criteria scores than wins (97 vs 88) — this signal at 79 is actually in the loss zone. Oil is getting crushed today (USO -6.0% with headline score -100) on Iran ceasefire/peace hopes driving oil prices lower, which is a massive headwind for XLE. The sector is down -1.07% while broad market is up +1.3%, showing clear relative weakness and active rotation OUT of energy.
+[12:48:16] INFO    Pattern: With 5 straight losses and losses averaging higher criteria scores (97) than wins (88), the scoring system is systematically overrating setups — a 79-score long into a -6% oil crash is exactly the type of trade that has been losing money.
+[12:48:16] INFO    Risks: ['USO down 6% with -100 headline score — oil is collapsing on Iran peace deal reducing geopolitical premium', '5 consecutive losses in pattern memory — system is miscalibrated and needs reset', 'Market rotating INTO cyclicals/tech and OUT of energy — fighting the tape', 'Iran ceasefire could normalize Iranian oil exports, structurally bearish for oil prices', 'Volume ratio 0.84x suggests weak conviction on any buying', "Losses historically have higher criteria scores than wins — this 79 score doesn't protect you"]
+[12:48:16] WARN    FLAG: caution
+[12:48:16] INFO    Tokens: 2737in / 399out
+[12:48:17] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:48:17] WARN  Telegram retry 1/3 in 1s...
+[12:48:18] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:48:18] WARN  Telegram retry 2/3 in 2s...
+[12:48:20] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:48:20] WARN  Telegram retry 3/3 in 4s...
+[12:48:24] ERROR Telegram failed after 3 attempts — chunk 1/1
+[12:48:24] INFO  AI scoring XLF (LONG)...
+[12:48:41] INFO    REJECTED LONG: score=42 skip conf=medium size=0.0x
+[12:48:41] INFO    Pattern memory shows 35% win rate with 5 consecutive losses, and critically, losses average a criteria score of 97 vs wins at 88 — this signal at 76 is actually below both, but the pattern clearly shows high-scoring signals are losing. XLF is 5.3% above SMA50 in an uptrend with RSI 63.4 approaching overbought, volume is below average at 0.85x, and it's trading below VWAP — all signs of weakening momentum at extended levels. Fed communications explicitly frame current conditions as a 'financial boom' with Barr warning against deregulation, which is directly bearish for financials banking on regulatory relief. Extreme fear sentiment (F&G 25) combined with the sector rotation narrative favoring financials creates a conflicting picture, but the 5-loss streak demands strict discipline.
+[12:48:41] INFO    Pattern: With a 35% win rate and losses averaging higher criteria scores than wins, the scoring system is inversely correlated with outcomes — signals scoring 76+ should be treated with maximum skepticism until the system recalibrates.
+[12:48:41] INFO    Risks: ['5 consecutive losses in pattern memory — system is clearly miscalibrated', 'Loss criteria scores average 97 suggesting high-conviction signals are failing', 'Fed explicitly warning against financial deregulation — directly bearish for XLF thesis', 'RSI 63.4 approaching overbought territory with below-average volume (0.85x)', 'Below VWAP signals intraday selling pressure despite positive daily close', 'Extreme fear sentiment (25/100) suggests broader risk-off environment', 'NFP report Thursday with compressed Friday holiday window adds event risk']
+[12:48:41] WARN    FLAG: caution
+[12:48:41] INFO    Tokens: 2731in / 498out
+[12:48:42] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:48:42] WARN  Telegram retry 1/3 in 1s...
+[12:48:43] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:48:43] WARN  Telegram retry 2/3 in 2s...
+[12:48:45] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:48:45] WARN  Telegram retry 3/3 in 4s...
+[12:48:49] ERROR Telegram failed after 3 attempts — chunk 1/1
+[12:48:49] INFO  AI scoring BAC (LONG)...
+[12:49:04] INFO    REJECTED LONG: score=42 skip conf=medium size=0.0x
+[12:49:04] INFO    Pattern memory shows 35% win rate with 5 consecutive losses and critically, losses have HIGHER criteria scores (97) than wins (88) — this signal at 76 is in the danger zone. BAC is 7.8% above SMA50 which is extended, volume ratio is weak at 0.59x, and price is below VWAP. Fed officials explicitly framing current conditions as a 'financial boom' with resistance to deregulation is directly bearish for bank stocks like BAC, undermining a key bull thesis for financials.
+[12:49:04] INFO    Pattern: Losses consistently occur at criteria scores above 75 with weak volume — this setup matches the losing profile almost exactly, and the 5-loss streak demands sitting out marginal setups.
+[12:49:04] INFO    Risks: ['5 consecutive losses — streak demands extreme selectivity', 'Pattern memory shows higher-scoring signals lose MORE often — recalibration needed', 'Volume ratio 0.59x is very weak, no conviction behind the move', 'Below VWAP signals intraday weakness despite uptrend', "Fed Barr explicitly warned against deregulation in a 'financial boom' — directly negative for bank stock sentiment", 'Extreme fear at 25/100 while BAC is extended 7.8% above SMA50 creates divergence risk', 'Extended price relative to SMA50 increases mean reversion probability']
+[12:49:04] WARN    FLAG: caution
+[12:49:04] INFO    Tokens: 2709in / 408out
+[12:49:04] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:49:04] WARN  Telegram retry 1/3 in 1s...
+[12:49:06] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:49:06] WARN  Telegram retry 2/3 in 2s...
+[12:49:08] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:49:08] WARN  Telegram retry 3/3 in 4s...
+[12:49:12] ERROR Telegram failed after 3 attempts — chunk 1/1
+[12:49:12] INFO  AI scoring JPM (LONG)...
+[12:49:27] INFO    REJECTED LONG: score=42 skip conf=medium size=0.0x
+[12:49:27] INFO    Pattern memory shows 35% win rate with 5 consecutive losses, and critically, losing trades averaged a criteria score of 97 vs winners at 88 — this signal at 75 is actually below both, but the pattern clearly shows high-scoring signals are NOT converting. JPM is 7.5% above SMA50 which is extended, RSI at 61.3 is acceptable but volume ratio at 0.41x is anemic — no institutional conviction behind this move. Below VWAP signals intraday weakness despite the uptrend label.
+[12:49:27] INFO    Pattern: With a 35% win rate and losses averaging higher criteria scores than wins, the scoring system is systematically miscalibrating — taking this trade perpetuates the losing pattern rather than breaking it.
+[12:49:27] INFO    Risks: ['5 consecutive losses — pattern memory demands extreme selectivity', 'Volume ratio 0.41x indicates no buying conviction, dead volume', 'Below VWAP signals intraday selling pressure contradicting uptrend', "Fed's higher-for-longer posture and Barr's deregulation resistance directly headwinds for financials", 'Fear & Greed at 25 (extreme fear) conflicts with taking new long positions', 'Extended 7.5% above SMA50 increases mean reversion risk', 'NFP report Thursday with compressed reaction window adds event risk']
+[12:49:27] WARN    FLAG: caution
+[12:49:27] INFO    Tokens: 2762in / 417out
+[12:49:28] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:49:28] WARN  Telegram retry 1/3 in 1s...
+[12:49:29] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:49:29] WARN  Telegram retry 2/3 in 2s...
+[12:49:31] WARN  Telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[12:49:31] WARN  Telegram retry 3/3 in 4s...
+[12:49:35] ERROR Telegram failed after 3 attempts — chunk 1/1
+[12:49:35] INFO  
+Run complete: 0 new position(s) opened
+[12:49:36] INFO    SHA check trades.json: 200
+[12:49:36] INFO    Commit trades.json: 200
+[12:49:36] INFO    Committed trades.json to repo
+[12:49:37] INFO    SHA check feedback.json: 200
+[12:49:38] INFO    Commit feedback.json: 200
+[12:49:38] INFO    Committed feedback.json to repo
+[12:49:38] INFO    SHA check backtest_latest.json: 200
+[12:49:39] INFO    Commit backtest_latest.json: 200
+[12:49:39] INFO    Committed backtest_latest.json to repo
+[12:49:39] INFO    SHA check auto_adjust_latest.json: 200
+[12:49:40] INFO    Commit auto_adjust_latest.json: 200
+[12:49:40] INFO    Committed auto_adjust_latest.json to repo
