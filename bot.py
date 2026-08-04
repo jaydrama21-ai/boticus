@@ -426,8 +426,41 @@ def save_feedback(feedback: list):
     except Exception as e:
         log(f"Feedback save error: {e}", "ERROR")
 
+def stamp_close_pnl(trade: dict, pct: float):
+    """
+    Record realized P&L on a trade being force-closed at market.
+
+    The time-exit and emergency-exit paths set status/close_reason/closed_at but
+    never set pnl/pnl_pct/closed_price, so log_trade_outcome() saw pnl=0 and
+    filed every one of them as a 0.0% loss — winners included. `pct` is the last
+    known unrealized P&L percent, which is the fill we expect on a market close.
+    """
+    pct   = float(pct or 0)
+    entry = trade.get("entry_price", 0) or 0
+    trade["pnl_pct"] = round(pct, 2)
+    # Prefer the broker's dollar figure; fall back to reconstructing from entry.
+    pl = trade.get("unrealized_pl")
+    if pl in (None, 0):
+        pl = pct / 100 * entry * trade.get("shares", 1)
+    trade["pnl"] = round(float(pl), 2)
+    if not trade.get("closed_price"):
+        cp = trade.get("current_price")
+        if not cp and entry:
+            direction = trade.get("direction", "long")
+            cp = entry * (1 + pct / 100) if direction == "long" else entry * (1 - pct / 100)
+        trade["closed_price"] = round(float(cp or 0), 2)
+
+
 def log_trade_outcome(trade: dict):
     feedback = load_feedback()
+    # Classify on whichever P&L figure the closing path actually stamped.
+    # Keying purely off trade["pnl"] meant any close path that forgot to set it
+    # recorded a 0.0% "loss" — including outright winners — which then poisoned
+    # pattern memory. Fall back to pnl_pct so a percentage-only close still
+    # lands in the right bucket.
+    pnl_d = trade.get("pnl")
+    pnl_p = trade.get("pnl_pct")
+    basis = pnl_d if pnl_d else pnl_p
     feedback.append({
         "date":           trade.get("opened_at", "")[:10],
         "symbol":         trade["symbol"],
@@ -436,7 +469,7 @@ def log_trade_outcome(trade: dict):
         "exit":           trade.get("closed_price", 0),
         "pnl_pct":        trade.get("pnl_pct", 0),
         "pnl_dollar":     trade.get("pnl", 0),
-        "result":         "win" if trade.get("pnl", 0) > 0 else "loss",
+        "result":         "win" if (basis or 0) > 0 else "loss",
         "close_reason":   trade.get("close_reason", ""),
         "criteria_score": trade.get("criteria", 0),
         "ai_score":       trade.get("ai_score", 0),
@@ -628,6 +661,9 @@ class MacroData:
 
 tickers: dict[str, TickerData] = {}
 macro = MacroData()
+
+# Per-run counters surfaced in last_run.json for the dashboard banner.
+RUN_STATS = {"signals": 0, "open_positions": 0}
 
 NEG_KEYWORDS = [
     "fraud","sec investigation","bankruptcy","recall","downgrade",
@@ -3097,6 +3133,7 @@ def check_news_emergency_exit():
                 trade["status"]       = "closed"
                 trade["close_reason"] = f"EMERGENCY: {trigger}"
                 trade["closed_at"]    = datetime.now(ET).isoformat()
+                stamp_close_pnl(trade, trade.get("unrealized_pct", 0))
                 save_trades(trades)
                 log_trade_outcome(trade)
                 _tg(
@@ -3274,6 +3311,7 @@ def check_time_based_exits():
                 trade["status"]       = "closed"
                 trade["close_reason"] = f"TIME_EXIT_DEAD ({hours_open:.1f}h)"
                 trade["closed_at"]    = now.isoformat()
+                stamp_close_pnl(trade, unreal_pct)
                 log_trade_outcome(trade)
                 _tg(f"Time Exit: {sym}\nOpen {hours_open:.1f}h with no movement ({unreal_pct:+.1f}%)")
                 updated = True
@@ -3284,6 +3322,7 @@ def check_time_based_exits():
                 trade["status"]       = "closed"
                 trade["close_reason"] = f"TIME_EXIT_8H ({unreal_pct:+.1f}%)"
                 trade["closed_at"]    = now.isoformat()
+                stamp_close_pnl(trade, unreal_pct)
                 log_trade_outcome(trade)
                 _tg(f"Max-Hold Exit: {sym}\nP&L: {unreal_pct:+.1f}% | Open {hours_open:.1f}h")
                 updated = True
@@ -4169,6 +4208,7 @@ def main():
 
     max_pos = SMALL_ACCT_MAX_POSITIONS if SMALL_ACCT_EQUITY > 0 else RISK["max_open_positions"]
     open_positions = get_open_positions()
+    RUN_STATS["open_positions"] = len(open_positions)
     log(f"Open positions: {len(open_positions)}/{max_pos}")
     if len(open_positions) >= max_pos:
         log("Max positions reached — not scanning for new entries")
@@ -4181,6 +4221,7 @@ def main():
         return
 
     signals = scan_all()
+    RUN_STATS["signals"] = len(signals)
 
     # Load near-misses for summary (saved inside scan_all)
     nm_file = STATE_DIR / "near_miss.json"
@@ -4882,12 +4923,36 @@ def run_auto_adjust(backtest: dict = None, notify: bool = True, stage: bool = Tr
 # STATE COMMIT
 # ══════════════════════════════════════════════════════════════════════════════
 
+def write_last_run():
+    """
+    Write the dashboard's "Last run" heartbeat.
+
+    last_run.json was already in files_to_commit and is read by the dashboard,
+    but nothing ever wrote it — so the committer re-uploaded identical seed bytes
+    every cycle and the banner sat frozen at its original timestamp while the bot
+    ran normally. Called from commit_state_to_github() so every terminal path in
+    main() refreshes it.
+    """
+    try:
+        (STATE_DIR / "last_run.json").write_text(json.dumps({
+            "timestamp":      datetime.now(ET).isoformat(),
+            "regime":         macro.market_regime,
+            "vix":            round(float(macro.vix or 0), 1),
+            "risk_score":     macro.risk_score,
+            "signals":        RUN_STATS.get("signals", 0),
+            "open_positions": RUN_STATS.get("open_positions", 0),
+        }, indent=2))
+    except Exception as e:
+        log(f"  last_run.json write error: {e}", "WARN")
+
+
 def commit_state_to_github():
     """
     Commits bot state files back to the GitHub repo so Streamlit Cloud can read live data.
     FIX: Header is "2022-11-28" — this is GitHub's API version label (released Nov 28 2022),
     NOT the current year. It does not change. The original had "2026-11-28" which caused 400 errors.
     """
+    write_last_run()   # refresh the heartbeat before uploading state
     if not GITHUB_TOKEN or not GITHUB_REPO:
         log("State commit: GITHUB_TOKEN or GITHUB_REPOSITORY not set — skipping", "WARN")
         return
