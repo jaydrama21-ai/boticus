@@ -487,6 +487,35 @@ def log_trade_outcome(trade: dict):
 # PATTERN MEMORY
 # ══════════════════════════════════════════════════════════════════════════════
 
+def tag_instruments(feedback: list) -> list:
+    """
+    Ensure every feedback entry carries an is_option tag, deriving it from
+    trades.json for entries written before the tag existed.
+
+    This must NOT rely on the repo copy of feedback.json being correct. The
+    workflow restores bot_state from an actions/cache AFTER checkout, so the
+    cached file wins over anything committed to the repo — a hand-edited
+    feedback.json gets silently reverted on the next run. Deriving the tag at
+    read time means the scoping in build_pattern_memory() holds no matter which
+    copy of the state the run happens to start from.
+
+    Untagged entries default to stock, which is correct: options trading only
+    began 2026-07-24, well after the untagged history was written.
+    """
+    missing = [e for e in feedback if "is_option" not in e]
+    if not missing:
+        return feedback
+    try:
+        by_key = {(t.get("symbol"), t.get("close_reason")): t for t in load_trades()}
+    except Exception:
+        by_key = {}
+    for e in missing:
+        t = by_key.get((e.get("symbol"), e.get("close_reason")))
+        e["is_option"] = bool(t.get("is_option")) if t else False
+    log(f"Pattern memory: derived is_option for {len(missing)} untagged trade(s)")
+    return feedback
+
+
 def build_pattern_memory(is_option: bool = False) -> str:
     """
     Learned-history block fed to the AI scorer, scoped to ONE instrument type.
@@ -505,7 +534,7 @@ def build_pattern_memory(is_option: bool = False) -> str:
     Scoped pools: stock signals learn from stock history, option signals from
     option history.
     """
-    everything = load_feedback()
+    everything = tag_instruments(load_feedback())
     feedback   = [t for t in everything if bool(t.get("is_option")) == is_option]
     label      = "OPTIONS" if is_option else "STOCK"
     other      = len(everything) - len(feedback)
