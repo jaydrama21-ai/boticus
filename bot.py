@@ -471,6 +471,9 @@ def log_trade_outcome(trade: dict):
         "pnl_dollar":     trade.get("pnl", 0),
         "result":         "win" if (basis or 0) > 0 else "loss",
         "close_reason":   trade.get("close_reason", ""),
+        # Instrument tag — build_pattern_memory() scopes its stats on this, so an
+        # option's leveraged P&L never contaminates the stock baseline.
+        "is_option":      bool(trade.get("is_option")),
         "criteria_score": trade.get("criteria", 0),
         "ai_score":       trade.get("ai_score", 0),
         "vix":            trade.get("vix", 0),
@@ -484,10 +487,32 @@ def log_trade_outcome(trade: dict):
 # PATTERN MEMORY
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build_pattern_memory() -> str:
-    feedback = load_feedback()
+def build_pattern_memory(is_option: bool = False) -> str:
+    """
+    Learned-history block fed to the AI scorer, scoped to ONE instrument type.
+
+    Options and stocks were sharing a single feedback pool, which is invalid:
+    their P&L distributions are not comparable. A -20% option premium move is
+    roughly a -2% move in the underlying, so option outcomes (observed range
+    -37%..+76%) swamped stock outcomes (range -5.5%..+4.6%) in every average.
+
+    The blend produced a self-locking veto: it dragged the win rate to 39%
+    (tripping "be stricter") and pushed avg loss criteria (97) above avg win
+    criteria (88), which trips "losses have higher criteria scores". Since the
+    scanner only ever emits high-criteria signals, that rule condemned every
+    signal the bot could produce and the AI skipped all of them.
+
+    Scoped pools: stock signals learn from stock history, option signals from
+    option history.
+    """
+    everything = load_feedback()
+    feedback   = [t for t in everything if bool(t.get("is_option")) == is_option]
+    label      = "OPTIONS" if is_option else "STOCK"
+    other      = len(everything) - len(feedback)
     if len(feedback) < 3:
-        return f"Limited history ({len(feedback)} trades) — early stage system."
+        return (f"Limited {label} history ({len(feedback)} trades) — early stage system."
+                + (f" ({other} trades on the other instrument type are excluded as"
+                   " non-comparable.)" if other else ""))
     wins   = [t for t in feedback if t["result"] == "win"]
     losses = [t for t in feedback if t["result"] == "loss"]
     total  = len(feedback)
@@ -519,15 +544,18 @@ def build_pattern_memory() -> str:
     if hv_wr < 30 and len(hv) >= 3: adj.append("Poor high-VIX performance — avoid VIX>25")
     if stopped > targets * 2:   adj.append("Stops hit 2x targets — adjust levels")
     if not adj: adj.append("No significant patterns yet")
-    return "\n".join([
-        f"=== PATTERN MEMORY ({total} trades) ===",
+    return "\n".join(line for line in [
+        f"=== PATTERN MEMORY — {label} ONLY ({total} trades) ===",
+        (f"NOTE: {other} {'stock' if is_option else 'option'} trade(s) excluded — "
+         "different instrument, non-comparable P&L scale. Judge this signal only "
+         f"against {label.lower()} history below." if other else ""),
         f"Win rate: {wr:.0f}% | Avg win: {aw:+.1f}% | Avg loss: {al:+.1f}%",
         f"Recent 5: {streak} | Stops: {stopped} | Targets: {targets}",
         f"Win criteria avg: {wc:.0f} vs loss: {lc:.0f}",
         "By regime:", *rlines,
         f"VIX<=25: {lv_wr:.0f}% WR | VIX>25: {hv_wr:.0f}% WR",
         f"LEARNED: {' | '.join(adj)}",
-    ])
+    ] if line)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2211,7 +2239,11 @@ SYSTEM_PROMPT = (
 
 def score_signal(sig: dict) -> dict:
     log(f"AI scoring {sig['symbol']} ({sig['direction'].upper()})...")
-    memory   = build_pattern_memory()
+    # Score against the history of the instrument this signal will actually be
+    # traded as — execute_signal routes to options only when the mode is on AND
+    # the underlying has a liquid chain.
+    as_option = OPTIONS_ENABLED and sig["symbol"] in OPTIONS_TICKERS
+    memory    = build_pattern_memory(is_option=as_option)
     context  = build_context(sig["symbol"])
     research = load_research_digest()
     fed_ins  = load_fed_insights()
