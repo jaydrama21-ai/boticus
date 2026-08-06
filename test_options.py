@@ -9,7 +9,7 @@ integration-tested live on the deployed bot, not here.
 
 Run:  python test_options.py   (exit 0 = pass)
 """
-from datetime import date
+from datetime import date, datetime
 import bot
 
 PASS = "\033[92mPASS\033[0m"; FAIL = "\033[91mFAIL\033[0m"
@@ -75,6 +75,43 @@ check("short: at target (down)", bot.option_exit_decision("short", 90, 105, 90) 
 check("short: at stop (up)", bot.option_exit_decision("short", 105, 105, 90) == "stop")
 check("short: mid -> hold", bot.option_exit_decision("short", 98, 105, 90) is None)
 check("no price -> hold", bot.option_exit_decision("long", 0, 95, 110) is None)
+
+print("\nCase 6: market_hours_between (option hold clock)")
+# The clock must count ONLY 09:30-16:00 ET on weekdays. Counting wall-clock time
+# was the original defect: it made a 6h stop fire at the next morning's open, so
+# every exit landed on the overnight gap instead of on the signal.
+_ET = bot.ET
+def _t(s):
+    return datetime.fromisoformat(s).astimezone(_ET)
+
+def _near(a, b):
+    return abs(a - b) < 0.02
+
+# 2026-07-24 is a Friday, 2026-07-27 the following Monday.
+check("full session 09:30-16:00 = 6.5h",
+      _near(bot.market_hours_between(_t("2026-08-04T09:30:00-04:00"),
+                                     _t("2026-08-04T16:00:00-04:00")), 6.5))
+check("overnight gap is not counted",
+      _near(bot.market_hours_between(_t("2026-07-30T13:08:00-04:00"),
+                                     _t("2026-07-31T09:50:00-04:00")), 3.2),
+      "20.7h wall clock -> 3.2h market")
+check("weekend is not counted",
+      _near(bot.market_hours_between(_t("2026-07-24T11:01:00-04:00"),
+                                     _t("2026-07-27T09:50:00-04:00")), 5.32),
+      "71.3h wall clock -> 5.3h market")
+check("after-hours only -> 0h",
+      bot.market_hours_between(_t("2026-08-04T16:30:00-04:00"),
+                               _t("2026-08-04T20:00:00-04:00")) == 0.0)
+check("Fri open -> Mon close = 2 sessions",
+      _near(bot.market_hours_between(_t("2026-07-24T09:30:00-04:00"),
+                                     _t("2026-07-27T16:00:00-04:00")), 13.0))
+check("end before start -> 0h",
+      bot.market_hours_between(_t("2026-08-04T16:00:00-04:00"),
+                               _t("2026-08-04T09:30:00-04:00")) == 0.0)
+check("hold clock is options-specific, not the 6h equity intraday one",
+      bot.OPTION_MAX_HOLD_HOURS > bot.RISK["max_hold_hours"],
+      f"option={bot.OPTION_MAX_HOLD_HOURS}h equity={bot.RISK['max_hold_hours']}h")
+check("options exempt from EOD flatten by default", bot.OPTION_EOD_CLOSE is False)
 
 print("\n" + "=" * 60)
 if _fail == 0:

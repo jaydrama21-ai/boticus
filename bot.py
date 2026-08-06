@@ -52,6 +52,26 @@ OPTIONS_MONEYNESS = os.environ.get("OPTIONS_MONEYNESS", "itm").lower()  # itm | 
 # place, but do NOT send the order. Use this on the first live activation to
 # confirm the Alpaca options API responses before trading real (paper) orders.
 OPTIONS_DRY_RUN   = os.environ.get("OPTIONS_DRY_RUN", "false").lower() == "true"
+# Options hold horizon. RISK["max_hold_hours"] is an EQUITY INTRADAY parameter
+# (it sits beside dead_money_hours=4) and options must not inherit it: entries use
+# a 3.5x-ATR underlying target that needs multiple days, so a 6h clock closed every
+# trade before the thesis could play out. All 11 trades through 2026-08-04 exited on
+# the clock; TARGET/STOP never once fired. Measured in MARKET hours, not wall clock —
+# wall clock made "6h" land on the next morning's open, i.e. on the overnight gap.
+#
+# 30 market hours is ~4.5 trading days. Sized off the TARGET, not off the trade record:
+# a 3.5x-daily-ATR move needs at least ~4 trending days, so any shorter clock just
+# reproduces the original bug in slower motion. Note the record cannot justify a
+# number here — measured in market hours all 11 trades were held 1.6-6.6h, i.e. under
+# one trading day, winners and losers alike. The +76%/+53% pair was not held longer in
+# trading time; it was held over a weekend and got a favourable gap. So this is a fix
+# for an unreachable target, NOT evidence that holding longer makes money.
+OPTION_MAX_HOLD_HOURS = float(os.environ.get("OPTION_MAX_HOLD_HOURS", "30"))
+# Options are a swing position; the equity EOD flatten would defeat the whole point.
+OPTION_EOD_CLOSE  = os.environ.get("OPTION_EOD_CLOSE", "false").lower() == "true"
+# Hard exit floor: never carry a long option into expiry week's gamma cliff. Closes
+# the position when days-to-expiry drops to this, regardless of the hold clock.
+OPTION_MIN_DTE_EXIT = int(os.environ.get("OPTION_MIN_DTE_EXIT", "1"))
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
@@ -2853,6 +2873,34 @@ def close_option_position(trade: dict, reason: str) -> bool:
     return False
 
 
+def market_hours_between(start: datetime, end: datetime) -> float:
+    """
+    Trading hours (09:30-16:00 ET, Mon-Fri) elapsed between two instants.
+
+    The option hold clock must not use wall-clock time. Wall clock counts the
+    17.5 overnight hours and the 62 weekend hours a position spends with the
+    market shut, so a "6 hour" stop actually fired at the next morning's open —
+    every exit landed on the overnight gap. Holidays are not modelled; the clock
+    then runs slightly slow, which errs toward holding, not toward a surprise exit.
+    """
+    if end <= start:
+        return 0.0
+    total = 0.0
+    day, last = start.date(), end.date()
+    guard = 0
+    while day <= last and guard < 400:
+        guard += 1
+        if day.weekday() < 5:
+            o = start.replace(year=day.year, month=day.month, day=day.day,
+                              hour=9, minute=30, second=0, microsecond=0)
+            c = o.replace(hour=16, minute=0)
+            lo, hi = max(start, o), min(end, c)
+            if hi > lo:
+                total += (hi - lo).total_seconds() / 3600
+        day += timedelta(days=1)
+    return total
+
+
 def monitor_option_positions():
     """Synthetic stop/target + theta time-stop + EOD close for long options."""
     if not OPTIONS_ENABLED:
@@ -2861,9 +2909,10 @@ def monitor_option_positions():
     if not any(t.get("is_option") and t.get("status") == "open" for t in trades):
         return
     now         = datetime.now(ET)
-    eod_enabled = os.environ.get("EOD_CLOSE", "true").lower() == "true"
+    eod_enabled = (os.environ.get("EOD_CLOSE", "true").lower() == "true"
+                   and OPTION_EOD_CLOSE)
     is_eod      = eod_enabled and ((now.hour == 15 and now.minute >= 50) or
-                                   (now.hour == 16 and now.minute == 0))
+                                   (now.hour == 16 and now.minute <= 5))
     updated = False
     for trade in trades:
         if not trade.get("is_option") or trade.get("status") != "open":
@@ -2881,11 +2930,22 @@ def monitor_option_positions():
         else:
             try:
                 opened = datetime.fromisoformat(trade.get("opened_at", "")).astimezone(ET)
-                hrs = (now - opened).total_seconds() / 3600
+                hrs = market_hours_between(opened, now)
             except Exception:
                 hrs = 0
-            if hrs >= RISK.get("max_hold_hours", 6):
-                reason = f"TIME_EXIT ({hrs:.1f}h theta)"
+            # Expiry floor outranks the hold clock: a long option near expiry loses
+            # its extrinsic value fastest and gaps hardest, so get out regardless of
+            # how much of the hold budget is left.
+            dte = None
+            try:
+                exp = date.fromisoformat(trade.get("expiry", ""))
+                dte = (exp - now.date()).days
+            except Exception:
+                pass
+            if dte is not None and dte <= OPTION_MIN_DTE_EXIT:
+                reason = f"EXPIRY_EXIT ({dte}d to expiry)"
+            elif hrs >= OPTION_MAX_HOLD_HOURS:
+                reason = f"TIME_EXIT ({hrs:.1f}h market theta)"
             elif is_eod:
                 reason = "EOD_CLOSE"
         if reason and close_option_position(trade, reason):
@@ -3207,13 +3267,21 @@ def check_news_emergency_exit():
 def eod_close_all():
     now         = datetime.now(ET)
     eod_enabled = os.environ.get("EOD_CLOSE", "true").lower() == "true"
+    # 16:00 was an exact one-minute match, so a run landing at 16:05 skipped EOD
+    # entirely (this happened 2026-07-30: runs at 14:43 then 16:05, four positions
+    # left open overnight). Widen to a window the */2 cron can actually hit.
     is_eod_window = (now.hour == 15 and now.minute >= 50) or \
-                    (now.hour == 16 and now.minute == 0)
+                    (now.hour == 16 and now.minute <= 5)
     if not is_eod_window or not eod_enabled:
         return
-    positions = get_open_positions()
+    # Count only what this function will actually close. Options are swing
+    # positions now (OPTION_EOD_CLOSE=false) and are skipped in the loop below,
+    # so including them here made the 15:50 alert announce "closing 3 positions"
+    # every single day and then close none of them.
+    positions = [p for p in get_open_positions()
+                 if p.get("asset_class") != "us_option"]
     if not positions:
-        log("EOD: No open positions to close")
+        log("EOD: No equity positions to close")
         return
     log(f"EOD CLOSE: Closing {len(positions)} position(s) before market close...")
     _tg(
@@ -3223,8 +3291,6 @@ def eod_close_all():
     )
     closed = 0
     for pos in positions:
-        if pos.get("asset_class") == "us_option":
-            continue  # options EOD handled by monitor_option_positions
         sym  = pos.get("symbol")
         qty  = int(float(pos.get("qty", 1)))
         side_held = pos.get("side", "long")
