@@ -45,7 +45,14 @@ SMALL_ACCT_MAX_POSITIONS = int(os.environ.get("SMALL_ACCT_MAX_POSITIONS", "3"))
 # Options-only mode (default off). When on, signals on OPTIONS_TICKERS underlyings
 # are traded as long calls/puts instead of stock; non-optionable names are skipped.
 OPTIONS_ENABLED   = os.environ.get("OPTIONS_ENABLED", "false").lower() == "true"
-OPTIONS_MIN_DTE   = int(os.environ.get("OPTIONS_MIN_DTE", "7"))
+# Contract life must outlast the hold horizon. At the old 7-day floor a contract
+# hit the OPTION_MIN_DTE_EXIT expiry floor after ~4 sessions — BEFORE the 30
+# market-hour hold clock — so the position was still being closed by a calendar
+# rather than by the signal, which is the exact defect the hold clock fixed. A
+# 30h hold is ~4.6 sessions, up to ~8 calendar days across a weekend; 14 days of
+# life clears that plus the 1-day floor and keeps the trade out of expiry week,
+# where theta on a long option is at its worst and gamma makes the mark jumpy.
+OPTIONS_MIN_DTE   = int(os.environ.get("OPTIONS_MIN_DTE", "14"))
 OPTIONS_MAX_DTE   = int(os.environ.get("OPTIONS_MAX_DTE", "21"))
 OPTIONS_MONEYNESS = os.environ.get("OPTIONS_MONEYNESS", "itm").lower()  # itm | atm
 # Dry run: do contract discovery + quoting + sizing and LOG the trade it would
@@ -2375,6 +2382,26 @@ def get_open_positions() -> list:
     except: pass
     return []
 
+
+def get_open_positions_checked() -> tuple[list, bool]:
+    """
+    Positions plus whether the fetch actually succeeded.
+
+    get_open_positions() collapses a failed request into [], which is
+    indistinguishable from a flat account. That is fine for "should I open more?"
+    but NOT for reconciling the ledger against the broker: one timeout would read
+    as "every position is gone" and close every open row. Any caller that deletes
+    or closes state on absence must use this and check the flag.
+    """
+    try:
+        r = requests.get(f"{ALPACA_BASE}/v2/positions",
+                         headers=ALPACA_HEADERS, timeout=8)
+        if r.ok:
+            return r.json(), True
+    except Exception as e:
+        log(f"  positions fetch error: {e}", "WARN")
+    return [], False
+
 def execute_signal(sig: dict, equity: float) -> tuple[bool, int]:
     if not sig.get("approved"): return False, 0
     rps    = abs(sig["entry"] - sig["stop"])
@@ -2756,6 +2783,39 @@ def _get_underlying_price(sym: str) -> float:
     return 0.0
 
 
+def _order_fill_state(order_id: str, tries: int = 3, delay: float = 1.5) -> tuple[float, str]:
+    """
+    (average fill price, order status) for an Alpaca order; (0.0, status) if it
+    has not filled yet, (0.0, "unknown") if the order can't be read.
+
+    Option entry/exit prices were previously recorded from the *quote* around the
+    order (ask on the way in, bid on the way out, silently falling back to the
+    entry premium — i.e. a fake 0% trade — when the snapshot failed). Every
+    options P&L number, and therefore everything the Kelly/feedback learning
+    reads out of trades.json, was an estimate of a fill rather than the fill.
+    """
+    for i in range(max(1, tries)):
+        try:
+            r = requests.get(f"{ALPACA_BASE}/v2/orders/{order_id}",
+                             headers=ALPACA_HEADERS, timeout=8)
+            if r.ok:
+                o      = r.json()
+                status = (o.get("status") or "unknown").lower()
+                px     = float(o.get("filled_avg_price") or 0)
+                if px > 0:
+                    return px, status
+                if status in ("canceled", "cancelled", "expired", "rejected", "suspended"):
+                    return 0.0, status
+            else:
+                status = "unknown"
+        except Exception as e:
+            log(f"  Order poll error {order_id}: {e}", "WARN")
+            status = "unknown"
+        if i < tries - 1:
+            time.sleep(delay)
+    return 0.0, status
+
+
 def execute_option_signal(sig: dict, equity: float) -> tuple[bool, int]:
     """Options-only execution: buy a long call (long signal) or put (short)."""
     if not sig.get("approved"):
@@ -2797,7 +2857,20 @@ def execute_option_signal(sig: dict, equity: float) -> tuple[bool, int]:
                           json=order, timeout=10)
         if r.status_code in (200, 201):
             oid  = r.json().get("id", "unknown")
-            log(f"  OPTION ORDER: {occ} BUY x{contracts} @ ~${buy_px:.2f} (${cost:.0f}) | "
+            # Record the price we actually paid, not the ask we quoted off. A
+            # market order on a wide options book can fill well away from the
+            # snapshot, and entry_premium is the denominator of every P&L number
+            # the learning loop reads back.
+            fill_px, fill_status = _order_fill_state(oid)
+            if fill_px > 0 and abs(fill_px - buy_px) / buy_px > 0.02:
+                log(f"  Fill ${fill_px:.2f} vs quoted ask ${buy_px:.2f} "
+                    f"({(fill_px - buy_px) / buy_px * 100:+.1f}% slippage)")
+            elif fill_px <= 0:
+                log(f"  Entry fill not confirmed (status {fill_status}) — "
+                    f"booking quoted ${buy_px:.2f}", "WARN")
+            entry_px = fill_px or buy_px
+            cost     = contracts * entry_px * 100
+            log(f"  OPTION ORDER: {occ} BUY x{contracts} @ ${entry_px:.2f} (${cost:.0f}) | "
                 f"{otype.upper()} strike ${contract['strike']:.2f} exp {contract['expiry']} | id:{oid}")
             trades = load_trades()
             trades.append({
@@ -2811,8 +2884,10 @@ def execute_option_signal(sig: dict, equity: float) -> tuple[bool, int]:
                 "contracts":         contracts,
                 "direction":         sig["direction"],
                 "signal_type":       sig["type"],
-                "entry_price":       round(buy_px, 4),   # premium/share — drives P&L + learning
-                "entry_premium":     round(buy_px, 4),
+                "entry_price":       round(entry_px, 4),  # premium/share — drives P&L + learning
+                "entry_premium":     round(entry_px, 4),
+                "entry_quoted":      round(buy_px, 4),    # ask at decision time
+                "entry_filled":      fill_px > 0,
                 "underlying_entry":  spot,
                 "underlying_stop":   sig["stop"],
                 "underlying_target": sig["target"],
@@ -2829,7 +2904,7 @@ def execute_option_signal(sig: dict, equity: float) -> tuple[bool, int]:
             })
             save_trades(trades)
             _tg(f"Option Buy: {underlying} {otype.upper()} ${contract['strike']:.0f} "
-                f"exp {contract['expiry']}\nx{contracts} @ ~${buy_px:.2f} (${cost:.0f})\n"
+                f"exp {contract['expiry']}\nx{contracts} @ ${entry_px:.2f} (${cost:.0f})\n"
                 f"Underlying stop ${sig['stop']:.2f} / target ${sig['target']:.2f}")
             return True, contracts
         log(f"  Option order failed {r.status_code}: {r.text[:150]}", "ERROR")
@@ -2838,35 +2913,145 @@ def execute_option_signal(sig: dict, equity: float) -> tuple[bool, int]:
     return False, 0
 
 
-def close_option_position(trade: dict, reason: str) -> bool:
-    """Market-sell an option to close. Mutates `trade` in place; caller saves."""
+def _book_option_close(trade: dict, exit_px: float, reason: str, priced_from: str) -> bool:
+    """Write the closed state onto an option trade row and announce it."""
+    qty      = int(trade.get("contracts", 0)) or 1
+    occ      = trade.get("option_symbol", "")
+    entry_px = trade.get("entry_premium", 0) or trade.get("entry_price", 0)
+    pnl_pct    = ((exit_px - entry_px) / entry_px * 100) if entry_px else 0
+    pnl_dollar = (exit_px - entry_px) * qty * 100
+    trade["status"]       = "closed"
+    trade["close_reason"] = reason
+    trade["closed_at"]    = datetime.now(ET).isoformat()
+    trade["closed_price"] = round(exit_px, 4)
+    trade["close_priced_from"] = priced_from
+    trade["pnl_pct"]      = round(pnl_pct, 2)
+    trade["pnl"]          = round(pnl_dollar, 2)
+    trade.pop("close_order_id", None)
+    trade.pop("close_pending_reason", None)
+    log(f"  OPTION CLOSED {occ} x{qty} @ ${exit_px:.2f} ({priced_from}) "
+        f"P&L {pnl_pct:+.1f}% (${pnl_dollar:+.0f}) — {reason}")
+    log_trade_outcome(trade)
+    _tg(f"Option Close: {trade['symbol']} {trade.get('option_type','').upper()}\n"
+        f"P&L: {pnl_pct:+.1f}% (${pnl_dollar:+.0f})\n{reason}")
+    return True
+
+
+def reconcile_option_ledger(trade: dict, broker_syms: set) -> bool:
+    """
+    Book an open option row whose contract is no longer in the account.
+    Returns True if the row was mutated (so the caller saves it).
+
+    monitor_option_positions only ever acts on rows it can still sell, so a
+    contract that left the account some other way — a close that filled after the
+    row was written, an expiry that passed while the workflow was down, an
+    exercise or assignment — would sit 'open' forever, re-sending a sell every
+    cycle. Holding positions across sessions makes all three reachable.
+    """
+    occ = trade.get("option_symbol")
+    if not occ or occ in broker_syms:
+        return False
+    # Grace period: a just-submitted entry has no broker position yet either.
+    try:
+        opened = datetime.fromisoformat(trade.get("opened_at", "")).astimezone(ET)
+        if (datetime.now(ET) - opened).total_seconds() < 900:
+            return False
+    except Exception:
+        pass
+
+    if trade.get("close_order_id"):
+        px, _ = _order_fill_state(trade["close_order_id"], tries=1)
+        if px > 0:
+            return _book_option_close(
+                trade, px, trade.get("close_pending_reason", "BROKER_CLOSED"), "fill")
+
+    bid, ask, last = get_option_quote(occ)
+    exit_px = bid or last or 0.0
+    try:
+        expired = date.fromisoformat(trade.get("expiry", "")) <= datetime.now(ET).date()
+    except Exception:
+        expired = False
+    if expired and exit_px <= 0:
+        # An ITM contract left to expire is auto-exercised into 100 shares per
+        # contract, which is a stock position this bot never sized for — worth
+        # shouting about rather than quietly booking a -100% trade.
+        log(f"  Option {occ} gone at/after expiry with no quote — booking worthless. "
+            f"If it expired ITM the account may now hold shares.", "WARN")
+        _tg(f"Option expired: {trade.get('symbol')} {occ}\n"
+            f"Contract left the account at expiry. Booked at $0 — check the account "
+            f"for assigned shares if it was in the money.")
+        return _book_option_close(trade, 0.0, "EXPIRED (no quote)", "assumed-zero")
+    if exit_px > 0:
+        return _book_option_close(trade, exit_px, "BROKER_CLOSED (contract gone)", "quote")
+    # No fill, no quote, not expired: there is no honest price to book. Guessing
+    # here would write a fabricated P&L straight into the learning loop, so leave
+    # the row open and say so once.
+    log(f"  Option {occ} not in the account but no fill or quote to price it — "
+        f"leaving the row open for review", "WARN")
+    if trade.get("reconcile_alerted"):
+        return False
+    trade["reconcile_alerted"] = True
+    _tg(f"Option ledger mismatch: {trade.get('symbol')} {occ}\n"
+        f"The contract is not in the account but there is no fill or quote to "
+        f"price it. Trade left open — needs a look.")
+    return True  # row mutated (alert flag) — caller must persist it or we re-alert
+
+
+def close_option_position(trade: dict, reason: str, force: bool = False) -> bool:
+    """
+    Market-sell an option to close. Mutates `trade` in place; the caller must
+    save whether or not this returns True (a submitted-but-unfilled close is
+    recorded on the row so the next cycle polls it instead of selling twice).
+
+    Two failure modes this guards, both newly reachable now that options are held
+    across sessions instead of being flattened every afternoon:
+
+    * Booking the close on *acceptance*. An order sent outside 09:30-16:00 sits
+      unfilled, but the row was already marked closed — the contract stayed in
+      the account with nothing monitoring it. The trade is only booked once a
+      fill price comes back.
+    * Re-sending the sell each cycle while the first is still working, which
+      would oversell into a naked SHORT option position.
+    """
     occ = trade.get("option_symbol")
     qty = int(trade.get("contracts", 0))
     if not occ or qty < 1:
         return False
+
+    # A close is already working — poll it, never stack a second sell on top.
+    pending = trade.get("close_order_id")
+    if pending:
+        px, status = _order_fill_state(pending, tries=1)
+        if px > 0:
+            return _book_option_close(trade, px,
+                                      trade.get("close_pending_reason", reason), "fill")
+        if status in ("new", "accepted", "pending_new", "accepted_for_bidding",
+                      "partially_filled", "held", "unknown"):
+            log(f"  Option close {occ}: order {pending} still {status} — waiting")
+            return False
+        log(f"  Option close {occ}: order {pending} ended {status} — resubmitting", "WARN")
+        trade.pop("close_order_id", None)
+
+    if not force and get_market_session() != "open":
+        log(f"  Option close {occ} deferred ({reason}): market is "
+            f"{get_market_session()} — a day order would not fill")
+        return False
+
     order = {"symbol": occ, "qty": str(qty), "side": "sell",
              "type": "market", "time_in_force": "day"}
     try:
         r = requests.post(f"{ALPACA_BASE}/v2/orders", headers=ALPACA_HEADERS,
                           json=order, timeout=10)
         if r.status_code in (200, 201):
-            bid, ask, last = get_option_quote(occ)
-            exit_px  = bid or last or trade.get("entry_premium", 0)
-            entry_px = trade.get("entry_premium", 0) or trade.get("entry_price", 0)
-            pnl_pct    = ((exit_px - entry_px) / entry_px * 100) if entry_px else 0
-            pnl_dollar = (exit_px - entry_px) * qty * 100
-            trade["status"]       = "closed"
-            trade["close_reason"] = reason
-            trade["closed_at"]    = datetime.now(ET).isoformat()
-            trade["closed_price"] = round(exit_px, 4)
-            trade["pnl_pct"]      = round(pnl_pct, 2)
-            trade["pnl"]          = round(pnl_dollar, 2)
-            log(f"  OPTION CLOSED {occ} x{qty} @ ~${exit_px:.2f} "
-                f"P&L {pnl_pct:+.1f}% (${pnl_dollar:+.0f}) — {reason}")
-            log_trade_outcome(trade)
-            _tg(f"Option Close: {trade['symbol']} {trade.get('option_type','').upper()}\n"
-                f"P&L: {pnl_pct:+.1f}% (${pnl_dollar:+.0f})\n{reason}")
-            return True
+            oid = r.json().get("id", "")
+            trade["close_order_id"]      = oid
+            trade["close_pending_reason"] = reason
+            px, status = _order_fill_state(oid)
+            if px > 0:
+                return _book_option_close(trade, px, reason, "fill")
+            log(f"  Option close {occ}: submitted (id {oid}) but not filled yet "
+                f"(status {status}) — will confirm next cycle", "WARN")
+            return False
         log(f"  Option close failed {occ}: {r.status_code} {r.text[:100]}", "ERROR")
     except Exception as e:
         log(f"  Option close error {occ}: {e}", "ERROR")
@@ -2917,6 +3102,13 @@ def monitor_option_positions():
     for trade in trades:
         if not trade.get("is_option") or trade.get("status") != "open":
             continue
+        # A close submitted on an earlier cycle that hasn't come back yet: poll it
+        # to completion before considering any new exit, so the row can't drift
+        # into a second sell order.
+        if trade.get("close_order_id"):
+            close_option_position(trade, trade.get("close_pending_reason", "PENDING_CLOSE"))
+            updated = True
+            continue
         sym  = trade["symbol"]
         u_px = _get_underlying_price(sym)
         decision = option_exit_decision(trade.get("direction", "long"), u_px,
@@ -2948,7 +3140,10 @@ def monitor_option_positions():
                 reason = f"TIME_EXIT ({hrs:.1f}h market theta)"
             elif is_eod:
                 reason = "EOD_CLOSE"
-        if reason and close_option_position(trade, reason):
+        if reason:
+            # Save either way: an unfilled close leaves close_order_id on the row,
+            # and losing that is what would cause a duplicate sell next cycle.
+            close_option_position(trade, reason)
             updated = True
     if updated:
         save_trades(trades)
@@ -3061,14 +3256,28 @@ def reprotect_positions():
 
 def sync_positions_from_alpaca():
     log("Syncing positions from Alpaca...")
-    alpaca_positions = get_open_positions()
+    # This function treats "symbol absent from the broker" as proof the position
+    # closed. get_open_positions() returns [] on a timeout or a 500 exactly as it
+    # does for a flat account, so reading absence off it would book EVERY open
+    # trade as closed — with a fabricated exit price — on one bad request. Only
+    # trust absence when the fetch is known to have succeeded.
+    alpaca_positions, fetch_ok = get_open_positions_checked()
+    if not fetch_ok:
+        log("Position sync: broker fetch failed — skipping reconcile this cycle "
+            "(absence is not proof a position closed)", "WARN")
+        return []
     alpaca_syms      = {p.get("symbol") for p in alpaca_positions}
     trades = load_trades()
     updated = False
     for trade in trades:
         if trade.get("status") != "open":
             continue
-        if trade.get("is_option"):  # keyed by OCC, lifecycle in monitor_option_positions
+        if trade.get("is_option"):
+            # Lifecycle lives in monitor_option_positions, but a contract that
+            # vanished from the account (filled close / expiry / assignment) has
+            # no lifecycle left — reconcile it here or the row never closes.
+            if reconcile_option_ledger(trade, alpaca_syms):
+                updated = True
             continue
         sym = trade["symbol"]
         if sym not in alpaca_syms:
@@ -3113,11 +3322,19 @@ def sync_positions_from_alpaca():
         unreal = float(pos.get("unrealized_pl", 0))
         unreal_pct = float(pos.get("unrealized_plpc", 0)) * 100
         for trade in trades:
-            if trade.get("symbol") == sym and trade.get("status") == "open":
-                trade["unrealized_pl"]  = round(unreal, 2)
-                trade["unrealized_pct"] = round(unreal_pct, 2)
-                trade["current_price"]  = float(pos.get("current_price", 0))
-                updated = True
+            if trade.get("status") != "open":
+                continue
+            # Match options on the OCC symbol. An option row keeps the UNDERLYING
+            # in "symbol", so matching on that stamped a stock position's P&L onto
+            # the contract — and left every option row with no mark-to-market at
+            # all, which is what made open option positions invisible between runs.
+            key = trade.get("option_symbol") if trade.get("is_option") else trade.get("symbol")
+            if key != sym:
+                continue
+            trade["unrealized_pl"]  = round(unreal, 2)
+            trade["unrealized_pct"] = round(unreal_pct, 2)
+            trade["current_price"]  = float(pos.get("current_price", 0))
+            updated = True
     if updated:
         save_trades(trades)
         log("Position sync complete")
@@ -3246,6 +3463,17 @@ def check_news_emergency_exit():
                         break
                 if emergency: break
         if emergency:
+            # Options must not go down the equity path. An option row carries the
+            # UNDERLYING in "symbol" and contracts in "shares", so this would send
+            # a stock sell for a position the account may not even hold — or, with
+            # a legacy stock position in the same name, close THAT and then mark
+            # the option row closed while the contract is still held and no longer
+            # monitored by anything.
+            if trade.get("is_option"):
+                log(f"  EMERGENCY EXIT (option): {sym} | {trigger}", "WARN")
+                close_option_position(trade, f"EMERGENCY: {trigger}")
+                save_trades(trades)
+                continue
             qty  = trade.get("shares", 1)
             side = "sell" if direction == "long" else "buy"
             log(f"  EMERGENCY EXIT: {sym} | {trigger}", "WARN")
@@ -3306,6 +3534,12 @@ def eod_close_all():
             )
             trades = load_trades()
             for trade in trades:
+                # `sym` is a stock symbol; an option row carries the same
+                # underlying in "symbol", so without this guard closing the stock
+                # would book the CONTRACT as closed at the stock's P&L while it
+                # stays open in the account (close_all_positions already guards).
+                if trade.get("is_option"):
+                    continue
                 if trade.get("symbol") == sym and trade.get("status") == "open":
                     trade["status"]       = "closed"
                     trade["close_reason"] = "EOD_CLOSE"
@@ -3496,8 +3730,19 @@ def run_position_monitor():
 
     log(f"Monitoring {open_count} open position(s)")
 
-    # 3. Refresh real-time prices for open positions
-    open_syms = [p.get("symbol") for p in alpaca_positions]
+    # 3. Refresh real-time prices for open positions.
+    # Options resolve to their UNDERLYING here: an OCC symbol is not a valid stock
+    # symbol, so in options-only mode this whole block was querying the equity
+    # quote and news endpoints with contract symbols — no price refresh, and no
+    # headlines for the news-emergency exit to act on.
+    open_syms = []
+    for p in alpaca_positions:
+        sym = p.get("symbol")
+        if p.get("asset_class") == "us_option":
+            parsed = parse_occ_symbol(sym or "")
+            sym = parsed["underlying"] if parsed else None
+        if sym and sym not in open_syms:
+            open_syms.append(sym)
     if open_syms:
         try:
             syms_str = ",".join(open_syms)
@@ -4303,6 +4548,15 @@ def main():
                 if t.get("closed_at","")[:10] == date.today().isoformat()) / equity,
             equity
         )
+        # The kill switch stops ENTRIES, not exits. Returning here skipped
+        # run_position_monitor() entirely for the rest of the day, which equities
+        # survive on their broker-side GTC OCO brackets — but an option has no
+        # broker protection at all. Its stop, target, hold clock and expiry floor
+        # are synthetic and only exist inside that monitor, so bailing out left
+        # open contracts completely unmanaged on precisely the day the account is
+        # already losing money. Manage what is open, then stop.
+        run_position_monitor()
+        commit_state_to_github()
         return
 
     macro_alerts = [(sym, t) for sym, t in tickers.items() if t.macro_alert]
