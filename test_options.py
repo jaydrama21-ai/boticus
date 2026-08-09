@@ -113,6 +113,76 @@ check("hold clock is options-specific, not the 6h equity intraday one",
       f"option={bot.OPTION_MAX_HOLD_HOURS}h equity={bot.RISK['max_hold_hours']}h")
 check("options exempt from EOD flatten by default", bot.OPTION_EOD_CLOSE is False)
 
+print("\nCase 7: premium stop")
+# Every other option exit is expressed in UNDERLYING terms, but a long option's
+# premium moves several times harder than the underlying. On 2026-08-07 three live
+# positions sat at -43%/-67%/-69% with every underlying still above its stop and
+# half the hold clock left — nothing in the ladder would have closed them.
+check("entry 1.00 -> mark 0.50 is a 50% drawdown",
+      bot.option_premium_drawdown({"entry_premium": 1.00}, 0.50) == 50.0)
+check("entry 3.36 -> mark 1.09 is ~67.6%",
+      abs(bot.option_premium_drawdown({"entry_premium": 3.36}, 1.09) - 67.56) < 0.01)
+check("a gain reads as a negative drawdown",
+      abs(bot.option_premium_drawdown({"entry_premium": 1.00}, 1.40) + 40.0) < 1e-9)
+check("falls back to entry_price when entry_premium is absent",
+      bot.option_premium_drawdown({"entry_price": 2.00}, 1.00) == 50.0)
+# The safety property: get_option_quote reports a dead book as 0.0, and a 0 mark
+# must not read as a -100% contract or an outage would liquidate healthy positions.
+check("no mark (quote outage) -> 0.0, NOT a total loss",
+      bot.option_premium_drawdown({"entry_premium": 1.00}, 0.0) == 0.0)
+check("no entry -> 0.0", bot.option_premium_drawdown({"entry_premium": 0}, 0.5) == 0.0)
+check("stop is armed at -50% by default", bot.OPTION_PREMIUM_STOP_PCT == 50.0)
+
+# Ladder placement: below the underlying stop/target and the expiry floor, above
+# the hold clock (which is a theta budget, not a risk control).
+_saved7 = (bot.load_trades, bot.save_trades, bot.close_option_position,
+           bot.get_option_quote, bot._get_underlying_price, bot.OPTIONS_ENABLED)
+_fired = []
+
+
+def _run_monitor(mark, u_px=100.0, expiry="2026-12-19", opened=None):
+    _fired.clear()
+    row = {"symbol": "XLF", "option_symbol": "XLF261219C00058000", "is_option": True,
+           "contracts": 2, "entry_premium": 1.00, "status": "open",
+           "direction": "long", "underlying_stop": 95.0, "underlying_target": 110.0,
+           "expiry": expiry,
+           "opened_at": opened or datetime.now(bot.ET).isoformat()}
+    bot.OPTIONS_ENABLED     = True
+    bot.load_trades         = lambda: [row]
+    bot.save_trades         = lambda t: None
+    bot.get_option_quote    = lambda occ: (mark, mark, mark)
+    bot._get_underlying_price = lambda s: u_px
+    bot.close_option_position = lambda t, r, **k: (_fired.append(r), True)[1]
+    bot.monitor_option_positions()
+    return _fired[0] if _fired else None
+
+
+try:
+    check("premium -55% -> PREMIUM_STOP fires",
+          (_run_monitor(0.45) or "").startswith("PREMIUM_STOP"), str(_fired))
+    check("premium -20% -> no exit", _run_monitor(0.80) is None, str(_fired))
+    check("premium exactly -50% -> fires (>=, not >)",
+          (_run_monitor(0.50) or "").startswith("PREMIUM_STOP"), str(_fired))
+    check("quote outage (0.0 mark) -> no exit, position is not liquidated",
+          _run_monitor(0.0) is None, str(_fired))
+    check("underlying stop still outranks the premium stop",
+          (_run_monitor(0.45, u_px=95.0) or "").startswith("STOP"), str(_fired))
+    check("underlying target still outranks the premium stop",
+          (_run_monitor(0.45, u_px=110.0) or "").startswith("TARGET"), str(_fired))
+    check("expiry floor outranks the premium stop",
+          (_run_monitor(0.45, expiry=str(datetime.now(bot.ET).date()))
+           or "").startswith("EXPIRY_EXIT"), str(_fired))
+    # The whole point: without this the only floor was the 30h clock.
+    _old = (datetime.now(bot.ET) - bot.timedelta(days=30)).isoformat()
+    check("premium stop fires before the hold clock is exhausted",
+          (_run_monitor(0.45, opened=datetime.now(bot.ET).isoformat())
+           or "").startswith("PREMIUM_STOP"), str(_fired))
+    check("hold clock still fires on its own when premium is healthy",
+          (_run_monitor(0.95, opened=_old) or "").startswith("TIME_EXIT"), str(_fired))
+finally:
+    (bot.load_trades, bot.save_trades, bot.close_option_position,
+     bot.get_option_quote, bot._get_underlying_price, bot.OPTIONS_ENABLED) = _saved7
+
 print("\nCase 8: option close bookkeeping (fakes, no network)")
 # Booking a close on order ACCEPTANCE orphaned the contract whenever the order
 # didn't fill (any run outside 09:30-16:00), and re-sending the sell each cycle

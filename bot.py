@@ -79,6 +79,14 @@ OPTION_EOD_CLOSE  = os.environ.get("OPTION_EOD_CLOSE", "false").lower() == "true
 # Hard exit floor: never carry a long option into expiry week's gamma cliff. Closes
 # the position when days-to-expiry drops to this, regardless of the hold clock.
 OPTION_MIN_DTE_EXIT = int(os.environ.get("OPTION_MIN_DTE_EXIT", "1"))
+# Premium stop: max % of the entry premium a contract may give back before it is
+# closed. Every other exit is expressed in UNDERLYING terms, but a long option's
+# premium moves several times harder than the underlying, so a contract can lose
+# most of its value while the underlying sits well inside its stop/target band —
+# on 2026-08-07 three positions sat at -43%/-67%/-69% with every underlying still
+# above its stop and ~15h of the 30h clock left, i.e. nothing to close them but
+# the clock. This is the floor under a losing option. 0 disables it.
+OPTION_PREMIUM_STOP_PCT = float(os.environ.get("OPTION_PREMIUM_STOP_PCT", "50"))
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
@@ -3086,8 +3094,23 @@ def market_hours_between(start: datetime, end: datetime) -> float:
     return total
 
 
+def option_premium_drawdown(trade: dict, mark: float) -> float:
+    """
+    Percent the contract's premium is below its entry (positive = a loss).
+
+    Returns 0.0 — never a loss — when there is no usable mark. get_option_quote
+    reports a failed or empty book as 0.0, and treating that as a $0 contract
+    would read as a total loss and fire the premium stop on a quote outage,
+    selling a healthy position at whatever the market happened to be.
+    """
+    entry = trade.get("entry_premium", 0) or trade.get("entry_price", 0)
+    if entry <= 0 or mark <= 0:
+        return 0.0
+    return (entry - mark) / entry * 100
+
+
 def monitor_option_positions():
-    """Synthetic stop/target + theta time-stop + EOD close for long options."""
+    """Synthetic stop/target + premium stop + theta time-stop + EOD close."""
     if not OPTIONS_ENABLED:
         return
     trades = load_trades()
@@ -3134,8 +3157,19 @@ def monitor_option_positions():
                 dte = (exp - now.date()).days
             except Exception:
                 pass
+            # Premium drawdown, ranked above the hold clock: the clock is a theta
+            # budget, not a risk control, and on its own it lets a contract ride to
+            # zero for as long as the underlying stays inside its band. Quoted only
+            # when the stop is armed, and a dead quote yields 0.0 (see the helper),
+            # so an outage can never masquerade as a total loss.
+            prem_dd = 0.0
+            if OPTION_PREMIUM_STOP_PCT > 0:
+                _bid, _ask, _last = get_option_quote(trade.get("option_symbol", ""))
+                prem_dd = option_premium_drawdown(trade, _bid or _last or 0.0)
             if dte is not None and dte <= OPTION_MIN_DTE_EXIT:
                 reason = f"EXPIRY_EXIT ({dte}d to expiry)"
+            elif OPTION_PREMIUM_STOP_PCT > 0 and prem_dd >= OPTION_PREMIUM_STOP_PCT:
+                reason = f"PREMIUM_STOP (-{prem_dd:.0f}% premium)"
             elif hrs >= OPTION_MAX_HOLD_HOURS:
                 reason = f"TIME_EXIT ({hrs:.1f}h market theta)"
             elif is_eod:
